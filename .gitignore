@@ -191,6 +191,8 @@ codedb.snapshot
 scripts/activity-labels/results/
 
 # OpenTPM exclusions — BMW internal (do not push to public repo)
+deploy/
+start-all.bat
 api/server/middleware/requireBmwSsoAuth.js
 api/strategies/bmwSsoStrategy.js
 api/server/services/Files/Audio/local_asr.py
