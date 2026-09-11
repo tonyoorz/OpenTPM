@@ -24,6 +24,7 @@ export enum QueryKeys {
   startupConfig = 'startupConfig',
   insights = 'insights',
   insightsAccess = 'insightsAccess',
+  insightsConversationMessages = 'insightsConversationMessages',
   assistants = 'assistants',
   assistant = 'assistant',
   agents = 'agents',

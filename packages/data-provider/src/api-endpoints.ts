@@ -438,6 +438,8 @@ export const skillFile = (id: string, relativePath: string) =>
 
 export const insights = () => `${BASE_URL}/api/admin/insights`;
 export const insightsAccess = () => `${insights()}/access`;
+export const insightsConversationMessages = (conversationId: string) =>
+  `${insights()}/conversations/${encodeURIComponent(conversationId)}/messages`;
 
 export const adminSkillsSync = () => `${BASE_URL}/api/admin/skills/sync`;
 export const adminSkillsSyncStatus = () => `${adminSkillsSync()}/status`;

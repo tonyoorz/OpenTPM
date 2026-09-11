@@ -14,6 +14,7 @@ const requireLocalAuth = require('./requireLocalAuth');
 const canDeleteAccount = require('./canDeleteAccount');
 const accessResources = require('./accessResources');
 const requireLdapAuth = require('./requireLdapAuth');
+const requireBmwSsoAuth = require('./requireBmwSsoAuth');
 const abortMiddleware = require('./abortMiddleware');
 const checkInviteUser = require('./checkInviteUser');
 const requireJwtAuth = require('./requireJwtAuth');
@@ -48,6 +49,7 @@ module.exports = {
   setTwoFactorTempUser,
   checkInviteUser,
   requireLdapAuth,
+  requireBmwSsoAuth,
   requireLocalAuth,
   canDeleteAccount,
   configMiddleware,

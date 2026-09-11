@@ -13,5 +13,9 @@ librechat*
 Dockerfile*
 docs
 
+# Plugin node_modules — the plugin source is needed in the image,
+# but its node_modules are installed by the app's dependency tree.
+plugin/**/node_modules
+
 # Ignore all hidden files
 .*

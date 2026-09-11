@@ -1,5 +1,5 @@
 const express = require('express');
-const { createSetBalanceConfig, forceRefreshCloudFrontAuthCookies } = require('@librechat/api');
+const { createSetBalanceConfig, forceRefreshCloudFrontAuthCookies, isEnabled } = require('@librechat/api');
 const {
   resetPasswordRequestController,
   resetPasswordController,
@@ -38,6 +38,12 @@ const getCloudFrontAuthCookieRefreshResult = (req, res) => {
 };
 
 const ldapAuth = !!process.env.LDAP_URL && !!process.env.LDAP_USER_SEARCH_BASE;
+const bmwSsoAuth = isEnabled(process.env.BMW_SSO_ENABLED);
+const loginAuthMiddleware = ldapAuth
+  ? middleware.requireLdapAuth
+  : bmwSsoAuth
+    ? middleware.requireBmwSsoAuth
+    : middleware.requireLocalAuth;
 //Local
 router.post('/logout', middleware.requireJwtAuth, logoutController);
 router.post(
@@ -46,7 +52,7 @@ router.post(
   middleware.loginLimiter,
   middleware.checkBan,
   middleware.validateEmailLogin,
-  ldapAuth ? middleware.requireLdapAuth : middleware.requireLocalAuth,
+  loginAuthMiddleware,
   setBalanceConfig,
   loginController,
 );

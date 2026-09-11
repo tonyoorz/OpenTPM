@@ -13,6 +13,7 @@ const { setupSaml } = require('./samlStrategy');
 const appleLogin = require('./appleStrategy');
 const { appleAdminLogin } = appleLogin;
 const ldapLogin = require('./ldapStrategy');
+const bmwSsoLogin = require('./bmwSsoStrategy');
 const jwtLogin = require('./jwtStrategy');
 
 module.exports = {
@@ -32,6 +33,7 @@ module.exports = {
   getOpenIdConfig,
   getOpenIdEmail,
   ldapLogin,
+  bmwSsoLogin,
   setupSaml,
   openIdJwtLogin,
 };

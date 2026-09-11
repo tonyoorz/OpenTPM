@@ -227,7 +227,7 @@ const sendVerificationEmail = async (user) => {
     email,
     subject: 'Verify your email',
     payload: {
-      appName: process.env.APP_TITLE || 'LibreChat',
+      appName: process.env.APP_TITLE || 'Vizion',
       name: user.name || user.username || email,
       verificationLink: verificationLink,
       year: new Date().getFullYear(),
@@ -493,7 +493,7 @@ const requestPasswordReset = async (req) => {
       email: user.email,
       subject: 'Password Reset Request',
       payload: {
-        appName: process.env.APP_TITLE || 'LibreChat',
+        appName: process.env.APP_TITLE || 'Vizion',
         name: user.name || user.username || user.email,
         link: link,
         year: new Date().getFullYear(),
@@ -544,7 +544,7 @@ const resetPassword = async (userId, token, password) => {
       email: user.email,
       subject: 'Password Reset Successfully',
       payload: {
-        appName: process.env.APP_TITLE || 'LibreChat',
+        appName: process.env.APP_TITLE || 'Vizion',
         name: user.name || user.username || user.email,
         year: new Date().getFullYear(),
       },
@@ -676,13 +676,13 @@ const setAuthTokens = async (userId, res, _session = null, req = null) => {
       expires: new Date(refreshTokenExpires),
       httpOnly: true,
       secure: shouldUseSecureCookie(),
-      sameSite: 'strict',
+      sameSite: 'lax',
     });
     res.cookie('token_provider', 'librechat', {
       expires: new Date(refreshTokenExpires),
       httpOnly: true,
       secure: shouldUseSecureCookie(),
-      sameSite: 'strict',
+      sameSite: 'lax',
     });
 
     setCloudFrontAuthCookies(req, res, user, { userId: user?._id ?? userId });
@@ -876,7 +876,7 @@ const resendVerificationEmail = async (req) => {
       email: user.email,
       subject: 'Verify your email',
       payload: {
-        appName: process.env.APP_TITLE || 'LibreChat',
+        appName: process.env.APP_TITLE || 'Vizion',
         name: user.name || user.username || user.email,
         verificationLink: verificationLink,
         year: new Date().getFullYear(),

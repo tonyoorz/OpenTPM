@@ -28,6 +28,7 @@ const mockStartupConfig: TStartupConfig = {
   registrationEnabled: true,
   emailLoginEnabled: true,
   socialLoginEnabled: true,
+  bmwSsoLoginEnabled: false,
   passwordResetEnabled: true,
   serverDomain: 'mock-server',
   appTitle: '',

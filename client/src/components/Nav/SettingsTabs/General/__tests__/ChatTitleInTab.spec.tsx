@@ -50,7 +50,7 @@ function renderToggle({
 describe('ChatTitleInTab', () => {
   beforeEach(() => {
     localStorage.clear();
-    localStorage.setItem(LocalStorageKeys.APP_TITLE, 'LibreChat');
+    localStorage.setItem(LocalStorageKeys.APP_TITLE, 'Vizion');
     localStorage.setItem(CHAT_TITLE_IN_TAB_KEY, JSON.stringify(false));
     document.title = '';
   });

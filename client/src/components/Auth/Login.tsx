@@ -109,7 +109,8 @@ function Login() {
           setError={setError}
         />
       )}
-      {startupConfig?.registrationEnabled === true && (
+      {startupConfig?.registrationEnabled === true &&
+        !startupConfig?.bmwSsoLoginEnabled && (
         <p className="my-4 text-center text-sm font-light text-text-secondary">
           {' '}
           {localize('com_auth_no_account')}{' '}

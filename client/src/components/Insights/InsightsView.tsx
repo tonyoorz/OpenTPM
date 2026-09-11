@@ -1,7 +1,7 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { AlertCircle, Info, Search } from 'lucide-react';
+import { AlertCircle, ChevronDown, ChevronRight, Info, Search } from 'lucide-react';
 import { Button, Input, Spinner, TooltipAnchor, useMediaQuery } from '@librechat/client';
 import {
   INSIGHTS_MAX_RANGE_DAYS,
@@ -17,7 +17,13 @@ import type {
   TInsightsUser,
 } from 'librechat-data-provider';
 import type { TranslationKeys } from '~/hooks';
-import { useGetStartupConfig, useInsightsAccessQuery, useInsightsQuery } from '~/data-provider';
+import {
+  useGetStartupConfig,
+  useInsightsAccessQuery,
+  useInsightsConversationMessagesQuery,
+  useInsightsQuery,
+} from '~/data-provider';
+import type { InsightsConversationMessage } from '~/data-provider';
 import { useAuthContext, useDocumentTitle, useLocalize } from '~/hooks';
 import OpenSidebar from '~/components/Chat/Menus/OpenSidebar';
 import { LocalizedDateRangePicker } from '~/components/ui';
@@ -398,6 +404,124 @@ function ChurnedUsersTable({
   );
 }
 
+function extractMessageText(message: InsightsConversationMessage): string {
+  if (message.text?.trim()) {
+    return message.text;
+  }
+  if (Array.isArray(message.content)) {
+    const textParts = message.content
+      .filter((part): part is { type: 'text'; text: string } =>
+        typeof part === 'object' && part !== null && (part as { type?: string }).type === 'text',
+      )
+      .map((part) => (part as { text?: string }).text ?? '')
+      .filter((text) => text.trim());
+    if (textParts.length) {
+      return textParts.join('\n');
+    }
+    const toolCalls = message.content.filter(
+      (part): part is { type: 'tool_call'; tool_call?: { name?: string } } =>
+        typeof part === 'object' &&
+        part !== null &&
+        (part as { type?: string }).type === 'tool_call',
+    );
+    if (toolCalls.length) {
+      const names = toolCalls
+        .map((tc) => tc.tool_call?.name)
+        .filter((name): name is string => Boolean(name));
+      if (names.length) {
+        return `[${names.join(', ')}]`;
+      }
+    }
+  }
+  return '';
+}
+
+function formatMessageTime(value: string, locale: string) {
+  const date = new Date(value);
+  return new Intl.DateTimeFormat(locale, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+}
+
+function ConversationDetail({
+  conversationId,
+  localize,
+  locale,
+}: {
+  conversationId: string;
+  localize: Localize;
+  locale: string;
+}) {
+  const { data, isLoading, isError } = useInsightsConversationMessagesQuery(conversationId);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 px-3 py-4 text-sm text-text-secondary">
+        <Spinner className="size-4" />
+        <span>{localize('com_insights_loading_conversation')}</span>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="flex items-center gap-2 px-3 py-4 text-sm text-status-error">
+        <AlertCircle className="size-4" />
+        <span>{localize('com_insights_load_conversation_error')}</span>
+      </div>
+    );
+  }
+
+  const messages = data?.messages ?? [];
+  if (messages.length === 0) {
+    return (
+      <div className="px-3 py-4 text-sm text-text-secondary">
+        {localize('com_insights_no_messages')}
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-h-96 overflow-y-auto border-t border-border-light">
+      {messages.map((message) => {
+        const isUser = message.isCreatedByUser;
+        const text = extractMessageText(message);
+        return (
+          <div
+            key={message.messageId}
+            className="flex gap-3 border-b border-border-light px-3 py-2.5 last:border-b-0"
+          >
+            <span className="mt-0.5 flex-shrink-0 text-sm" aria-hidden="true">
+              {isUser ? '👤' : '🤖'}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 text-xs text-text-secondary">
+                <span className="font-medium text-text-primary">
+                  {isUser
+                    ? localize('com_insights_user')
+                    : message.sender || message.model || 'AI'}
+                </span>
+                <span>{formatMessageTime(message.createdAt, locale)}</span>
+                {message.tokenCount != null && message.tokenCount > 0 && (
+                  <span className="text-text-tertiary">
+                    {formatExactValue(message.tokenCount, locale)} tokens
+                  </span>
+                )}
+              </div>
+              <div className="mt-1 whitespace-pre-wrap break-words text-sm text-text-primary">
+                {text || localize('com_insights_no_message')}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function LatestConversations({
   rows,
   search,
@@ -421,6 +545,12 @@ function LatestConversations({
   localize: Localize;
   locale: string;
 }) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const toggleExpand = (conversationId: string) => {
+    setExpandedId((current) => (current === conversationId ? null : conversationId));
+  };
+
   return (
     <Panel className="overflow-hidden">
       <div className="mb-3 flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -458,33 +588,68 @@ function LatestConversations({
               <th className="w-20 px-2 py-2 text-right font-medium">
                 {localize('com_insights_total_tokens')}
               </th>
+              <th className="w-8 px-2 py-2" />
             </tr>
           </thead>
           <tbody className="divide-y divide-border-light">
-            {rows.map((conversation) => (
-              <tr
-                key={`${conversation.conversationId}:${conversation.userId}`}
-                className="hover:bg-surface-hover"
-              >
-                <td className="whitespace-nowrap px-2 py-3 text-text-secondary">
-                  {formatRecentChatDate(conversation.date, locale)}
-                </td>
-                <td className="px-2 py-3">
-                  <UserCell {...conversation} localize={localize} />
-                </td>
-                <td className="max-w-xl px-2 py-3">
-                  <span className="line-clamp-2">
-                    {conversation.firstMessage || localize('com_insights_no_message')}
-                  </span>
-                </td>
-                <td className="px-2 py-3 text-right tabular-nums">
-                  {formatExactValue(conversation.messages, locale)}
-                </td>
-                <td className="px-2 py-3 text-right tabular-nums">
-                  {formatValue(conversation.totalTokens, locale)}
-                </td>
-              </tr>
-            ))}
+            {rows.map((conversation) => {
+              const isExpanded = expandedId === conversation.conversationId;
+              const rowKey = `${conversation.conversationId}:${conversation.userId}`;
+              return (
+                <Fragment key={rowKey}>
+                  <tr
+                    className="cursor-pointer hover:bg-surface-hover"
+                    onClick={() => toggleExpand(conversation.conversationId)}
+                  >
+                    <td className="whitespace-nowrap px-2 py-3 text-text-secondary">
+                      {formatRecentChatDate(conversation.date, locale)}
+                    </td>
+                    <td className="px-2 py-3">
+                      <UserCell {...conversation} localize={localize} />
+                    </td>
+                    <td className="max-w-xl px-2 py-3">
+                      <span className="line-clamp-2">
+                        {conversation.firstMessage || localize('com_insights_no_message')}
+                      </span>
+                    </td>
+                    <td className="px-2 py-3 text-right tabular-nums">
+                      {formatExactValue(conversation.messages, locale)}
+                    </td>
+                    <td className="px-2 py-3 text-right tabular-nums">
+                      {formatValue(conversation.totalTokens, locale)}
+                    </td>
+                    <td className="px-2 py-3 text-right">
+                      <button
+                        type="button"
+                        className="text-text-secondary hover:text-text-primary"
+                        aria-label={localize('com_insights_view_conversation')}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          toggleExpand(conversation.conversationId);
+                        }}
+                      >
+                        {isExpanded ? (
+                          <ChevronDown className="size-4" aria-hidden="true" />
+                        ) : (
+                          <ChevronRight className="size-4" aria-hidden="true" />
+                        )}
+                      </button>
+                    </td>
+                  </tr>
+                  {isExpanded && (
+                    <tr>
+                      <td colSpan={6} className="bg-surface-secondary p-0">
+                        <ConversationDetail
+                          conversationId={conversation.conversationId}
+                          localize={localize}
+                          locale={locale}
+                        />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -561,7 +726,7 @@ export default function InsightsView() {
   const insights = useInsightsQuery(insightsParams, { enabled: isAllowed });
   const data = insights.data;
 
-  useDocumentTitle(`${localize('com_insights_title')} | LibreChat`);
+  useDocumentTitle(`${localize('com_insights_title')} | Vizion`);
 
   useEffect(
     () => () => {

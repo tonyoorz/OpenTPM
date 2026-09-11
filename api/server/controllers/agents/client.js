@@ -3780,7 +3780,12 @@ class AgentClient extends BaseClient {
       } else {
         logger.error(
           '[api/server/controllers/agents/client.js #sendCompletion] Unhandled error type',
-          getSafeErrorMetadata(err),
+          {
+            ...getSafeErrorMetadata(err),
+            message: err instanceof Error ? err.message : String(err),
+            stack: err instanceof Error ? err.stack : undefined,
+            name: err instanceof Error ? err.name : undefined,
+          },
         );
         const videoError = resolveGoogleVideoError({
           error: err,

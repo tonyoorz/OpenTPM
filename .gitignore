@@ -189,3 +189,17 @@ CLAUDE.md
 .gsd
 codedb.snapshot
 scripts/activity-labels/results/
+
+# OpenTPM exclusions — BMW internal (do not push to public repo)
+api/server/middleware/requireBmwSsoAuth.js
+api/strategies/bmwSsoStrategy.js
+api/server/services/Files/Audio/local_asr.py
+api/server/services/Files/Audio/__pycache__/
+client/public/exports/
+docs/
+plugin/
+skill/
+docker-compose.prod.yml
+Dockerfile.prod
+mongo-init.js
+restart-backend.sh

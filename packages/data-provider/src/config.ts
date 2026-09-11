@@ -1353,10 +1353,20 @@ const sttAzureOpenAISchema = z.object({
   apiVersion: z.string(),
 });
 
+const sttLocalSchema = z.object({
+  model: z.string().optional(),
+  device: z.string().optional(),
+  pythonPath: z.string().optional(),
+  scriptPath: z.string().optional(),
+  ffmpegPath: z.string().optional(),
+  timeoutMs: z.number().optional(),
+});
+
 const sttSchema = z.object({
   allowedAddresses: allowedAddressesSchema,
   openai: sttOpenaiSchema.optional(),
   azureOpenAI: sttAzureOpenAISchema.optional(),
+  local: sttLocalSchema.optional(),
 });
 
 const speechTab = z
@@ -1755,6 +1765,8 @@ export type TStartupConfig = {
   emailLoginEnabled: boolean;
   registrationEnabled: boolean;
   socialLoginEnabled: boolean;
+  /** BMW SSO login via session_keeper service */
+  bmwSsoLoginEnabled: boolean;
   passwordResetEnabled: boolean;
   emailEnabled: boolean;
   showBirthdayIcon: boolean;
@@ -3058,6 +3070,10 @@ export enum STTProviders {
    * Provider for Microsoft Azure STT
    */
   AZURE_OPENAI = 'azureOpenAI',
+  /**
+   * Provider for local FunASR/SenseVoice STT
+   */
+  LOCAL = 'local',
 }
 
 export enum TTSProviders {

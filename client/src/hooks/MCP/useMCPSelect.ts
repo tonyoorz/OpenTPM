@@ -38,12 +38,14 @@ export function useMCPSelect({
   const [mcpValues, setMCPValuesRaw] = useAtom(mcpValuesAtomFamily(mcpAtomKey));
   const [ephemeralAgent, setEphemeralAgent] = useRecoilState(ephemeralAgentByConvoId(key));
   const hasAppliedDefaultPin = useRef(false);
+  const hasAppliedDefaultSelection = useRef(false);
 
   /**
-   * Seed the MCP dropdown's pinned state from the admin-configured `defaultPinnedTools`:
-   * pin when the array includes the `'mcp'` keyword or any configured server name.
-   * Only applies on first load when the user has no stored preference; when the option
-   * is absent entirely, the legacy default (pinned) is kept.
+   * Seed the MCP dropdown's pinned state from the admin-configured
+   * `defaultPinnedTools`: pin when the array includes the `'mcp'` keyword or
+   * any configured server name. Only applies on first load when the user has no
+   * stored preference; when the option is absent entirely, the legacy default
+   * (pinned) is kept.
    */
   useEffect(() => {
     if (hasAppliedDefaultPin.current || !startupConfig) {
@@ -54,20 +56,20 @@ export function useMCPSelect({
       hasAppliedDefaultPin.current = true;
       return;
     }
-    if (localStorage.getItem(LocalStorageKeys.PIN_MCP_) != null) {
-      hasAppliedDefaultPin.current = true;
-      return;
-    }
     const pinnedByKeyword = defaultPinnedTools.includes(MCP_PIN_KEYWORD);
     /** Wait for servers before deciding so a configured server name isn't missed. */
     if (!pinnedByKeyword && servers.length === 0) {
       return;
     }
     hasAppliedDefaultPin.current = true;
-    const shouldPin =
-      pinnedByKeyword || servers.some((server) => defaultPinnedTools.includes(server.serverName));
-    if (shouldPin !== isPinned) {
-      setIsPinned(shouldPin);
+
+    /** Pin: only when the user has no stored pin preference. */
+    if (localStorage.getItem(LocalStorageKeys.PIN_MCP_) == null) {
+      const shouldPin =
+        pinnedByKeyword || servers.some((server) => defaultPinnedTools.includes(server.serverName));
+      if (shouldPin !== isPinned) {
+        setIsPinned(shouldPin);
+      }
     }
   }, [startupConfig, servers, isPinned, setIsPinned]);
 
@@ -115,6 +117,38 @@ export function useMCPSelect({
     },
     [setMCPValuesRaw, setEphemeralAgent, storageContextKey],
   );
+
+  /**
+   * Pre-select configured MCP servers listed in `defaultPinnedTools` on first
+   * load, when the user has no stored selection for this context. A stored entry
+   * (even an empty array) is the user's explicit choice and is preserved.
+   */
+  useEffect(() => {
+    if (hasAppliedDefaultSelection.current || !startupConfig) {
+      return;
+    }
+    const defaultPinnedTools = startupConfig.interface?.defaultPinnedTools;
+    if (!Array.isArray(defaultPinnedTools)) {
+      hasAppliedDefaultSelection.current = true;
+      return;
+    }
+    /** Wait for servers so a listed name can actually match. */
+    if (servers.length === 0) {
+      return;
+    }
+    const mcpSelectionKey = `${LocalStorageKeys.LAST_MCP_}${mcpAtomKey}`;
+    if (localStorage.getItem(mcpSelectionKey) != null) {
+      hasAppliedDefaultSelection.current = true;
+      return;
+    }
+    hasAppliedDefaultSelection.current = true;
+    const defaultSelected = servers
+      .filter((server) => defaultPinnedTools.includes(server.serverName))
+      .map((server) => server.serverName);
+    if (defaultSelected.length > 0 && !isEqual(defaultSelected, mcpValues)) {
+      setMCPValues(defaultSelected);
+    }
+  }, [startupConfig, servers, mcpAtomKey, mcpValues, setMCPValues]);
 
   return {
     isPinned,

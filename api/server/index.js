@@ -60,7 +60,7 @@ const createValidateImageRequest = require('./middleware/validateImageRequest');
 const { initializeGitHubSkillSync } = require('./services/Skills/sync');
 const { initializeAgentTriggerService } = require('./services/Agents/triggers');
 const { initializeScheduleEngine, recordExpiredScheduleApproval } = require('./services/Schedules');
-const { jwtLogin, ldapLogin, passportLogin } = require('~/strategies');
+const { jwtLogin, ldapLogin, passportLogin, bmwSsoLogin } = require('~/strategies');
 const { startExpiredFileSweep } = require('./services/Files/process');
 const { checkMigrations } = require('./services/start/migration');
 const optionalJwtAuth = require('./middleware/optionalJwtAuth');
@@ -310,6 +310,11 @@ const startServer = async () => {
     passport.use(ldapLogin);
   }
 
+  /* BMW SSO Auth (via session_keeper service) */
+  if (isEnabled(process.env.BMW_SSO_ENABLED)) {
+    passport.use('bmw-sso', bmwSsoLogin());
+  }
+
   if (isEnabled(ALLOW_SOCIAL_LOGIN)) {
     await configureSocialLogins(app);
   }
@@ -351,6 +356,7 @@ const startServer = async () => {
   app.use('/api/assistants', routes.assistants);
   app.use('/api/files', await routes.files.initialize());
   app.use('/images/', createValidateImageRequest(appConfig.secureImageLinks), routes.staticRoute);
+  app.use('/exports', express.static(appConfig.paths.exports, { index: false }));
   app.use('/api/share', preAuthTenantMiddleware, routes.share);
   app.use('/api/roles', routes.roles);
   app.use('/api/agents/chat', rejectChatStartsUntilReady);

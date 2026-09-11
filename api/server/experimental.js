@@ -511,6 +511,7 @@ if (cluster.isMaster) {
     app.use('/api/assistants', routes.assistants);
     app.use('/api/files', await routes.files.initialize());
     app.use('/images/', createValidateImageRequest(appConfig.secureImageLinks), routes.staticRoute);
+    app.use('/exports', express.static(appConfig.paths.exports, { index: false }));
     app.use('/api/share', preAuthTenantMiddleware, routes.share);
     app.use('/api/roles', routes.roles);
     app.use('/api/agents', routes.agents);

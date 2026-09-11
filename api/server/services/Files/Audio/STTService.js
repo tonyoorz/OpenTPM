@@ -1,4 +1,6 @@
 const axios = require('axios');
+const path = require('path');
+const { spawn } = require('node:child_process');
 const fs = require('fs').promises;
 const FormData = require('form-data');
 const { Readable } = require('stream');
@@ -74,6 +76,158 @@ function getValidatedLanguageCode(language) {
   }
 }
 
+const DEFAULT_LOCAL_ASR_SCRIPT = path.join(__dirname, 'local_asr.py');
+const DEFAULT_LOCAL_ASR_MODEL = 'iic/SenseVoiceSmall';
+const DEFAULT_LOCAL_ASR_DEVICE = 'cuda:0';
+const DEFAULT_LOCAL_ASR_TIMEOUT_MS = 180000;
+
+function resolveLocalAsrConfig(sttSchema) {
+  const pythonPath =
+    sttSchema?.pythonPath ||
+    process.env.STT_LOCAL_PYTHON ||
+    process.env.DUPSEARCH_LOCAL_ASR_PYTHON ||
+    'python';
+  const scriptPath = sttSchema?.scriptPath || DEFAULT_LOCAL_ASR_SCRIPT;
+  const model =
+    sttSchema?.model ||
+    process.env.STT_LOCAL_MODEL ||
+    process.env.DUPSEARCH_LOCAL_ASR_MODEL ||
+    DEFAULT_LOCAL_ASR_MODEL;
+  const device =
+    sttSchema?.device ||
+    process.env.STT_LOCAL_DEVICE ||
+    process.env.DUPSEARCH_LOCAL_ASR_DEVICE ||
+    DEFAULT_LOCAL_ASR_DEVICE;
+  const timeoutMs =
+    sttSchema?.timeoutMs ||
+    Number(process.env.STT_LOCAL_TIMEOUT_MS || process.env.DUPSEARCH_LOCAL_ASR_TIMEOUT_MS) ||
+    DEFAULT_LOCAL_ASR_TIMEOUT_MS;
+  return { pythonPath, scriptPath, model, device, timeoutMs };
+}
+
+function localAsrWorkerKey(config) {
+  return [config.pythonPath, config.scriptPath, config.model, config.device].join('|');
+}
+
+const localAsrWorkers = new Map();
+
+function createLocalAsrWorker(config) {
+  const child = spawn(config.pythonPath, [config.scriptPath, '--server'], {
+    cwd: path.dirname(config.scriptPath),
+    env: {
+      ...process.env,
+      PYTHONIOENCODING: 'utf-8',
+      DUPSEARCH_LOCAL_ASR_MODEL: config.model,
+      DUPSEARCH_LOCAL_ASR_DEVICE: config.device,
+      DUPSEARCH_LOCAL_ASR_FFMPEG:
+        process.env.STT_LOCAL_FFMPEG || process.env.DUPSEARCH_LOCAL_ASR_FFMPEG || 'ffmpeg',
+    },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+
+  const pending = new Map();
+  let nextId = 1;
+  let stdoutBuffer = '';
+  let stderrBuffer = '';
+  let closed = false;
+
+  const rejectAll = (error) => {
+    for (const { reject, timer } of pending.values()) {
+      clearTimeout(timer);
+      reject(error);
+    }
+    pending.clear();
+  };
+
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
+  child.stdout.on('data', (chunk) => {
+    stdoutBuffer += chunk;
+    let newlineIndex = stdoutBuffer.indexOf('\n');
+    while (newlineIndex >= 0) {
+      const rawLine = stdoutBuffer.slice(0, newlineIndex).trim();
+      stdoutBuffer = stdoutBuffer.slice(newlineIndex + 1);
+      if (rawLine) {
+        try {
+          const message = JSON.parse(rawLine);
+          const entry = pending.get(message.id);
+          if (entry) {
+            clearTimeout(entry.timer);
+            pending.delete(message.id);
+            if (message.error) {
+              entry.reject(new Error(String(message.error)));
+            } else {
+              entry.resolve({ text: message.text });
+            }
+          }
+        } catch {
+          stderrBuffer = `${stderrBuffer}${rawLine}\n`.slice(-4000);
+        }
+      }
+      newlineIndex = stdoutBuffer.indexOf('\n');
+    }
+  });
+  child.stderr.on('data', (chunk) => {
+    stderrBuffer = `${stderrBuffer}${chunk}`.slice(-4000);
+  });
+  child.on('error', (error) => {
+    closed = true;
+    logger.error('[STT] Local ASR worker error:', getSafeErrorMetadata(error));
+    rejectAll(error);
+  });
+  child.on('close', (code) => {
+    closed = true;
+    logger.error(`[STT] Local ASR worker exited (${code ?? 0}): ${stderrBuffer.trim()}`);
+    rejectAll(new Error(`Local ASR worker exited (${code ?? 0}): ${stderrBuffer.trim()}`));
+  });
+
+  return {
+    transcribe({ audioBase64, mimeType }) {
+      if (closed) {
+        return Promise.reject(new Error('Local ASR worker is not running'));
+      }
+      const id = String(nextId++);
+      const payload = JSON.stringify({
+        id,
+        audio: String(audioBase64 || ''),
+        mime: String(mimeType || 'audio/webm'),
+        model: config.model,
+        device: config.device,
+      });
+
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          pending.delete(id);
+          reject(new Error(`Local ASR timed out after ${config.timeoutMs}ms: ${stderrBuffer.trim()}`));
+        }, config.timeoutMs);
+        pending.set(id, { resolve, reject, timer });
+        child.stdin.write(`${payload}\n`, 'utf8', (error) => {
+          if (error) {
+            clearTimeout(timer);
+            pending.delete(id);
+            reject(error);
+          }
+        });
+      });
+    },
+    dispose() {
+      closed = true;
+      rejectAll(new Error('Local ASR worker disposed'));
+      child.kill('SIGTERM');
+    },
+  };
+}
+
+function getLocalAsrWorker(config) {
+  const key = localAsrWorkerKey(config);
+  let worker = localAsrWorkers.get(key);
+  if (!worker) {
+    worker = createLocalAsrWorker(config);
+    localAsrWorkers.set(key, worker);
+  }
+  return worker;
+}
+
 /**
  * Gets the file extension from the MIME type.
  * @param {string} mimeType - The MIME type.
@@ -128,6 +282,7 @@ class STTService {
     this.providerStrategies = {
       [STTProviders.OPENAI]: this.openAIProvider,
       [STTProviders.AZURE_OPENAI]: this.azureOpenAIProvider,
+      [STTProviders.LOCAL]: this.localProvider,
     };
   }
 
@@ -282,6 +437,28 @@ class STTService {
   }
 
   /**
+   * Transcribes audio using the local FunASR/SenseVoice Python worker.
+   * @param {Object} sttSchema - The STT schema for the local provider.
+   * @param {Buffer} audioBuffer - The audio data to be transcribed.
+   * @param {Object} audioFile - The audio file object containing originalname, mimetype, and size.
+   * @param {string} _language - The language code (unused; SenseVoice auto-detects).
+   * @returns {Promise<string>} The transcribed text.
+   */
+  async localProvider(sttSchema, audioBuffer, audioFile, _language) {
+    const config = resolveLocalAsrConfig(sttSchema);
+    const worker = getLocalAsrWorker(config);
+    const audioBase64 = Buffer.from(audioBuffer).toString('base64');
+    const mimeType = audioFile?.mimetype || 'audio/webm';
+
+    const result = await worker.transcribe({ audioBase64, mimeType });
+    const text = typeof result?.text === 'string' ? result.text.trim() : '';
+    if (!text) {
+      throw new Error('Local ASR returned empty text');
+    }
+    return text;
+  }
+
+  /**
    * Sends an STT request to the specified provider.
    * @async
    * @param {string} provider - The STT provider to use.
@@ -298,6 +475,10 @@ class STTService {
     const strategy = this.providerStrategies[provider];
     if (!strategy) {
       throw new Error('Invalid provider');
+    }
+
+    if (provider === STTProviders.LOCAL) {
+      return await this.localProvider(sttSchema, audioBuffer, audioFile, language);
     }
 
     const fileExtension = getFileExtensionFromMime(audioFile.mimetype);

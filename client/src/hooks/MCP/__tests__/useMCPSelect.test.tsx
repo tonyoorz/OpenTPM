@@ -922,4 +922,72 @@ describe('useMCPSelect', () => {
       });
     });
   });
+
+  describe('defaultPinnedTools (default server selection)', () => {
+    it('pre-selects a configured server listed in defaultPinnedTools', async () => {
+      mockStartupConfig = { interface: { defaultPinnedTools: ['serverA'] } };
+      const { Wrapper, servers } = createWrapper(['serverA', 'serverB']);
+      const { result } = renderHook(() => useMCPSelect({ servers }), { wrapper: Wrapper });
+
+      await waitFor(() => {
+        expect(result.current.mcpValues).toEqual(['serverA']);
+      });
+    });
+
+    it('pre-selects multiple configured servers listed in defaultPinnedTools', async () => {
+      mockStartupConfig = { interface: { defaultPinnedTools: ['serverA', 'serverB'] } };
+      const { Wrapper, servers } = createWrapper(['serverA', 'serverB', 'serverC']);
+      const { result } = renderHook(() => useMCPSelect({ servers }), { wrapper: Wrapper });
+
+      await waitFor(() => {
+        expect(result.current.mcpValues).toEqual(['serverA', 'serverB']);
+      });
+    });
+
+    it('does not pre-select when the listed server is not configured', async () => {
+      mockStartupConfig = { interface: { defaultPinnedTools: ['serverA'] } };
+      const { Wrapper, servers } = createWrapper(['serverB']);
+      const { result } = renderHook(() => useMCPSelect({ servers }), { wrapper: Wrapper });
+
+      await waitFor(() => {
+        expect(result.current.mcpValues).toEqual([]);
+      });
+    });
+
+    it('preserves a stored non-empty selection over the configured default', async () => {
+      localStorage.setItem(
+        `${LocalStorageKeys.LAST_MCP_}${Constants.NEW_CONVO}`,
+        JSON.stringify(['stored-server']),
+      );
+      mockStartupConfig = { interface: { defaultPinnedTools: ['serverA'] } };
+      const { Wrapper, servers } = createWrapper(['serverA', 'stored-server']);
+      const { result } = renderHook(() => useMCPSelect({ servers }), { wrapper: Wrapper });
+
+      await waitFor(() => {
+        expect(result.current.mcpValues).toEqual(['stored-server']);
+      });
+    });
+
+    it('preserves a stored empty selection over the configured default', async () => {
+      localStorage.setItem(`${LocalStorageKeys.LAST_MCP_}${Constants.NEW_CONVO}`, JSON.stringify([]));
+      mockStartupConfig = { interface: { defaultPinnedTools: ['serverA'] } };
+      const { Wrapper, servers } = createWrapper(['serverA']);
+      const { result } = renderHook(() => useMCPSelect({ servers }), { wrapper: Wrapper });
+
+      await waitFor(() => {
+        expect(result.current.mcpValues).toEqual([]);
+      });
+    });
+
+    it('does not select servers listed only via the "mcp" keyword', async () => {
+      mockStartupConfig = { interface: { defaultPinnedTools: ['mcp'] } };
+      const { Wrapper, servers } = createWrapper(['serverA', 'serverB']);
+      const { result } = renderHook(() => useMCPSelect({ servers }), { wrapper: Wrapper });
+
+      await waitFor(() => {
+        expect(result.current.isPinned).toBe(true);
+        expect(result.current.mcpValues).toEqual([]);
+      });
+    });
+  });
 });

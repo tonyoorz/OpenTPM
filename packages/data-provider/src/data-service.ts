@@ -33,6 +33,12 @@ export function getInsightsAccess(): Promise<TInsightsAccessResponse> {
   return request.get(endpoints.insightsAccess());
 }
 
+export function getInsightsConversationMessages(
+  conversationId: string,
+): Promise<{ messages: unknown[] }> {
+  return request.get(endpoints.insightsConversationMessages(conversationId));
+}
+
 export function getLangfuseConnection(): Promise<t.TLangfuseConnectionStatus> {
   return request.get(endpoints.adminLangfuseConnection());
 }

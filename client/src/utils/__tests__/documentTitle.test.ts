@@ -9,7 +9,7 @@ import {
 describe('document title', () => {
   beforeEach(() => {
     localStorage.clear();
-    localStorage.setItem(LocalStorageKeys.APP_TITLE, 'LibreChat');
+    localStorage.setItem(LocalStorageKeys.APP_TITLE, 'Vizion');
     document.title = '';
   });
 
@@ -26,13 +26,13 @@ describe('document title', () => {
   it('uses the app title when chat titles are disabled', () => {
     setDocumentTitle('Project status', false);
 
-    expect(document.title).toBe('LibreChat');
+    expect(document.title).toBe('Vizion');
   });
 
   it('uses the app title when the conversation title is empty', () => {
     setDocumentTitle('', true);
 
-    expect(document.title).toBe('LibreChat');
+    expect(document.title).toBe('Vizion');
   });
 
   it('uses a conversation deliberately titled New Chat when enabled', () => {
@@ -50,7 +50,7 @@ describe('document title', () => {
 
     setDocumentTitle('', true);
 
-    expect(document.title).toBe('LibreChat');
+    expect(document.title).toBe('Vizion');
   });
 
   it('uses the default app title when the stored app title is empty', () => {
@@ -58,7 +58,7 @@ describe('document title', () => {
 
     setDocumentTitle('', true);
 
-    expect(document.title).toBe('LibreChat');
+    expect(document.title).toBe('Vizion');
   });
 
   it('uses the default app title when storage is unavailable', () => {
@@ -68,7 +68,7 @@ describe('document title', () => {
 
     setDocumentTitle('', true);
 
-    expect(document.title).toBe('LibreChat');
+    expect(document.title).toBe('Vizion');
   });
 
   it('defaults to enabled when the stored setting is malformed', () => {

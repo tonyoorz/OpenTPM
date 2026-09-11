@@ -40,6 +40,7 @@ const {
   containsGraphTokenPlaceholder,
   isOAuthServer,
   OpenIDReauthRequiredError,
+  getDeploymentPluginMcpServers,
 } = require('@librechat/api');
 const {
   Time,
@@ -195,8 +196,20 @@ async function resolveMcpServerNames(req) {
 async function resolveMcpServerContext(req) {
   try {
     const appConfig = await getAppConfigForRequest(req);
+    const mcpConfig = { ...(appConfig?.mcpConfig || {}) };
+    const pluginServers = getDeploymentPluginMcpServers();
+    for (const [name, options] of Object.entries(pluginServers)) {
+      if (!Object.hasOwn(mcpConfig, name)) {
+        Object.defineProperty(mcpConfig, name, {
+          value: options,
+          enumerable: true,
+          writable: true,
+          configurable: true,
+        });
+      }
+    }
     return await resolveMCPServerContext({
-      mcpConfig: appConfig?.mcpConfig || {},
+      mcpConfig,
       ensureConfigServers: (mcpConfig) => getMCPServersRegistry().ensureConfigServers(mcpConfig),
     });
   } catch (error) {

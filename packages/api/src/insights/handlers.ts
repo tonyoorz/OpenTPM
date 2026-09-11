@@ -1,10 +1,12 @@
-import { logger } from '@librechat/data-schemas';
+import { logger, CLIENT_MESSAGE_SELECT } from '@librechat/data-schemas';
 import {
   INSIGHTS_SEARCH_MAX_LENGTH,
   INSIGHTS_SEARCH_MIN_LENGTH,
   type TInsightsParams,
 } from 'librechat-data-provider';
 import type { InsightsMethods } from '@librechat/data-schemas';
+import type { FilterQuery } from 'mongoose';
+import type { IMessage } from '@librechat/data-schemas';
 import type { Response } from 'express';
 import type { ServerRequest } from '~/types';
 
@@ -14,6 +16,14 @@ type InsightsHandlerDeps = {
 };
 
 type InsightsAccessHandlerDeps = Pick<InsightsHandlerDeps, 'isInsightsEnabled'>;
+
+type ConversationMessagesHandlerDeps = {
+  isInsightsEnabled: () => boolean;
+  getMessages: (
+    filter: FilterQuery<IMessage>,
+    select?: string,
+  ) => Promise<IMessage[]>;
+};
 
 const firstQueryValue = (value: unknown): string | undefined => {
   if (Array.isArray(value)) {
@@ -98,6 +108,39 @@ export function createInsightsHandler({ isInsightsEnabled, getInsights }: Insigh
     } catch (error) {
       logger.error('[Insights] Failed to load dashboard', error);
       res.status(500).json({ message: 'Failed to load insights' });
+    }
+  };
+}
+
+export function createInsightsConversationMessagesHandler({
+  isInsightsEnabled,
+  getMessages,
+}: ConversationMessagesHandlerDeps) {
+  return async (req: ServerRequest, res: Response): Promise<void> => {
+    try {
+      if (!isInsightsEnabled()) {
+        res.status(404).json({ message: 'Not found' });
+        return;
+      }
+
+      const conversationId = req.params?.conversationId;
+      if (!conversationId) {
+        res.status(400).json({ message: 'conversationId is required' });
+        return;
+      }
+
+      const tenantId = stringValue(req.user?.tenantId);
+      const filter: FilterQuery<IMessage> = {
+        conversationId,
+        isTemporary: { $ne: true },
+        ...(tenantId ? { tenantId } : { tenantId: { $exists: false } }),
+      };
+
+      const messages = await getMessages(filter, CLIENT_MESSAGE_SELECT);
+      res.json({ messages });
+    } catch (error) {
+      logger.error('[Insights] Failed to load conversation messages', error);
+      res.status(500).json({ message: 'Failed to load conversation messages' });
     }
   };
 }

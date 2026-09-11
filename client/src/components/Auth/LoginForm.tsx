@@ -4,7 +4,7 @@ import { Turnstile } from '@marsidev/react-turnstile';
 import { ThemeContext, SecretInput, Spinner, Button, Input, isDark } from '@librechat/client';
 import type { TLoginUser, TStartupConfig } from 'librechat-data-provider';
 import type { TAuthContext } from '~/common';
-import { useResendVerificationEmail, useGetStartupConfig } from '~/data-provider';
+import { useResendVerificationEmail } from '~/data-provider';
 import { validateEmail } from '~/utils';
 import { useLocalize } from '~/hooks';
 
@@ -27,8 +27,8 @@ const LoginForm: React.FC<TLoginFormProps> = ({ onSubmit, startupConfig, error, 
   const [showResendLink, setShowResendLink] = useState<boolean>(false);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
 
-  const { data: config } = useGetStartupConfig();
-  const useUsernameLogin = config?.ldap?.username;
+  const useUsernameLogin = startupConfig?.ldap?.username || startupConfig?.bmwSsoLoginEnabled;
+  const isBmwSso = Boolean(startupConfig?.bmwSsoLoginEnabled);
   const validTheme = isDark(theme) ? 'dark' : 'light';
   const requireCaptcha = Boolean(startupConfig.turnstile?.siteKey);
   const authInputClassName =
@@ -100,7 +100,7 @@ const LoginForm: React.FC<TLoginFormProps> = ({ onSubmit, startupConfig, error, 
               type="text"
               id="email"
               autoComplete={useUsernameLogin ? 'username' : 'email'}
-              aria-label={localize('com_auth_email')}
+              aria-label={isBmwSso ? localize('com_auth_bmw_username') : localize('com_auth_email')}
               {...register('email', {
                 required: localize('com_auth_email_required'),
                 maxLength: { value: 120, message: localize('com_auth_email_max_length') },
@@ -113,9 +113,11 @@ const LoginForm: React.FC<TLoginFormProps> = ({ onSubmit, startupConfig, error, 
               placeholder=" "
             />
             <label htmlFor="email" className={authLabelClassName}>
-              {useUsernameLogin
-                ? localize('com_auth_username').replace(/ \(.*$/, '')
-                : localize('com_auth_email_address')}
+              {isBmwSso
+                ? localize('com_auth_bmw_username')
+                : useUsernameLogin
+                  ? localize('com_auth_username').replace(/ \(.*$/, '')
+                  : localize('com_auth_email_address')}
             </label>
           </div>
           {renderError('email')}
@@ -178,7 +180,7 @@ const LoginForm: React.FC<TLoginFormProps> = ({ onSubmit, startupConfig, error, 
             variant="submit"
             className="h-12 w-full rounded-2xl"
           >
-            {isSubmitting ? <Spinner /> : localize('com_auth_continue')}
+            {isSubmitting ? <Spinner /> : isBmwSso ? localize('com_auth_bmw_login') : localize('com_auth_continue')}
           </Button>
         </div>
       </form>

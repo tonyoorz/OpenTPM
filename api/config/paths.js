@@ -9,6 +9,7 @@ module.exports = {
   fonts: path.resolve(__dirname, '..', '..', 'client', 'public', 'fonts'),
   assets: path.resolve(__dirname, '..', '..', 'client', 'public', 'assets'),
   imageOutput: path.resolve(__dirname, '..', '..', 'client', 'public', 'images'),
+  exports: path.resolve(__dirname, '..', '..', 'client', 'public', 'exports'),
   structuredTools: path.resolve(__dirname, '..', 'app', 'clients', 'tools', 'structured'),
   pluginManifest: path.resolve(__dirname, '..', 'app', 'clients', 'tools', 'manifest.json'),
 };
