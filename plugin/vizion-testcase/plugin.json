@@ -1,0 +1,7 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "vizion-testcase",
+  "version": "0.1.0",
+  "description": "vizion-testcase: Octane 测试用例生成 MCP server — 从缺陷生成标准化测试用例, RAG 检索 + pattern discovery + 质检 + Octane 写入",
+  "author": { "name": "ZE-361" }
+}

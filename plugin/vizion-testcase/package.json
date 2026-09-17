@@ -1,0 +1,34 @@
+{
+  "name": "vizion-testcase",
+  "version": "0.1.0",
+  "description": "vizion-testcase: Octane 测试用例生成 MCP server — 缺陷→测试用例 RAG + pattern discovery",
+  "private": true,
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "better-sqlite3": "^11.0.0",
+    "exceljs": "^4.4.0",
+    "pg": "^8.23.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.0",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.23.1",
+    "jest": "^30.0.0",
+    "typescript": "^5.6.0"
+  },
+  "jest": {
+    "testMatch": [
+      "**/__tests__/**/*.test.js"
+    ],
+    "testEnvironment": "node"
+  }
+}

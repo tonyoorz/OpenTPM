@@ -190,17 +190,16 @@ CLAUDE.md
 codedb.snapshot
 scripts/activity-labels/results/
 
-# OpenTPM exclusions — BMW internal (do not push to public repo)
+# OpenTPM exclusions — BMW internal secrets & runtime artifacts only
 deploy/
 start-all.bat
-api/server/middleware/requireBmwSsoAuth.js
-api/strategies/bmwSsoStrategy.js
-api/server/services/Files/Audio/local_asr.py
 api/server/services/Files/Audio/__pycache__/
 client/public/exports/
-docs/
-plugin/
-skill/
+plugin/*/dist/
+plugin/*/node_modules/
+plugin/*/data/*.db
+plugin/*/data/*.db-shm
+plugin/*/data/*.db-wal
 docker-compose.prod.yml
 Dockerfile.prod
 mongo-init.js

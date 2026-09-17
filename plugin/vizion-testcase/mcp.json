@@ -1,0 +1,24 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "vizion-testcase": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${PLUGIN_ROOT}/dist/index.js"],
+      "env": {
+        "DEFECT_DB_PATH": "C:\\Users\\q446328\\Desktop\\vizion-lab\\database\\source\\qgate_raw.db",
+        "OCTANE_COOKIE_FILE": "C:\\Users\\q446328\\Desktop\\vizion-lab\\cookie.txt",
+        "OCTANE_BASE_URL": "https://octane-prod.bmwgroup.net",
+        "OCTANE_SHARED_SPACE_ID": "1002",
+        "OCTANE_WORKSPACE_ID": "2001",
+        "EXPORT_DIR": "C:\\Users\\q446328\\Desktop\\LibreChat\\client\\public\\exports",
+        "EXPORT_BASE_URL": "http://10.165.22.10:3080/exports",
+        "EMBEDDING_API_URL": "https://beaconapi.bmwbrill.cn/project-poc/v1/embeddings",
+        "EMBEDDING_API_KEY": "443EE3B2DCFF41878C13E10176076C78",
+        "EMBEDDING_MODEL": "qwen3-embedding-8b",
+        "PG_CONNECTION_STRING": "postgresql://postgres:admin@localhost:5432/vizion_vectors"
+      },
+      "cwd": "${PLUGIN_ROOT}"
+    }
+  }
+}

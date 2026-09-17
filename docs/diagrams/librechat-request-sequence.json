@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Agent Request Lifecycle",
+    "output": "docs/diagrams/librechat-request-sequence.html",
+    "quality_profile": "showcase",
+    "locale": "en",
+    "viewBox": [1010, 740],
+    "views": [
+      { "id": "init", "label": "Initialization", "focus": ["user", "routes", "controller", "init_client", "init_agent"], "note": "From request to initialized agent client." },
+      { "id": "execution", "label": "Stream execution", "focus": ["agent_client", "run", "llm"], "note": "Tool calls and LLM generation loop." },
+      { "id": "completion", "label": "Completion + async", "focus": ["agent_client", "run", "database", "user"], "note": "Response persistence and async tasks." }
+    ]
+  },
+  "participants": [
+    { "id": "user", "type": "external", "label": "User", "sublabel": "browser" },
+    { "id": "routes", "type": "frontend", "label": "Express", "sublabel": "routes" },
+    { "id": "controller", "type": "backend", "label": "Controller", "sublabel": "request.js" },
+    { "id": "init_client", "type": "backend", "label": "InitClient", "sublabel": "factory" },
+    { "id": "init_agent", "type": "backend", "label": "InitAgent", "sublabel": "packages/api" },
+    { "id": "agent_client", "type": "backend", "label": "AgentClient", "sublabel": "client.js" },
+    { "id": "run", "type": "cloud", "label": "Run", "sublabel": "LangGraph + tools" },
+    { "id": "llm", "type": "external", "label": "LLM", "sublabel": "Beacon" },
+    { "id": "database", "type": "database", "label": "Data", "sublabel": "Mongo + Redis" }
+  ],
+  "segments": [
+    { "from": 160, "to": 335, "label": "Init" },
+    { "from": 355, "to": 575, "label": "Execute" },
+    { "from": 595, "to": 690, "label": "Complete" }
+  ],
+  "messages": [
+    { "id": "m1", "from": "user", "to": "routes", "y": 180, "label": "POST /agents/chat", "variant": "emphasis" },
+    { "id": "m2", "from": "routes", "to": "controller", "y": 214, "label": "ResumableAgentController" },
+    { "id": "m3", "from": "controller", "to": "database", "y": 248, "label": "createJob + protocol", "note": "Redis job + concurrency" },
+    { "id": "m4", "from": "controller", "to": "init_client", "y": 282, "label": "initializeClient()", "variant": "emphasis" },
+    { "id": "m5", "from": "init_client", "to": "init_agent", "y": 316, "label": "initializeAgent()", "variant": "emphasis" },
+    { "id": "m6", "from": "init_agent", "to": "init_client", "y": 350, "label": "provider + HITL + skills", "variant": "return", "note": "Register tools, wiring" },
+    { "id": "m7", "from": "init_client", "to": "agent_client", "y": 384, "label": "new AgentClient()", "variant": "emphasis" },
+    { "id": "m8", "from": "controller", "to": "agent_client", "y": 418, "label": "sendCompletion()", "variant": "emphasis" },
+    { "id": "m9", "from": "agent_client", "to": "run", "y": 452, "label": "buildMessages + createRun", "variant": "emphasis" },
+    { "id": "m10", "from": "run", "to": "llm", "y": 486, "label": "LLM generate", "variant": "emphasis" },
+    { "id": "m11", "from": "llm", "to": "run", "y": 514, "label": "response + tool_calls", "variant": "return" },
+    { "id": "m12", "from": "run", "to": "database", "y": 542, "label": "execute tools + checkpoint", "variant": "security", "note": "MCP tool exec + Redis checkpoint" },
+    { "id": "m13", "from": "run", "to": "agent_client", "y": 570, "label": "run complete", "variant": "return" },
+    { "id": "m14", "from": "agent_client", "to": "database", "y": 604, "label": "saveMessage + completeJob", "variant": "dashed" },
+    { "id": "m15", "from": "controller", "to": "user", "y": 650, "label": "SSE final response", "variant": "return" }
+  ],
+  "activations": [
+    { "participant": "controller", "from": 209, "to": 655, "type": "backend" },
+    { "participant": "init_client", "from": 277, "to": 389, "type": "backend" },
+    { "participant": "agent_client", "from": 379, "to": 609, "type": "backend" },
+    { "participant": "run", "from": 447, "to": 575, "type": "cloud" },
+    { "participant": "llm", "from": 481, "to": 519, "type": "external" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Five Phases", "items": ["Preprocess: protocol, job, concurrency", "Init: client factory + TS agent setup", "Build: messages, memory, MCP resolve"] },
+    { "dot": "violet", "title": "Execution Loop", "items": ["createRun builds the LangGraph multi-agent graph", "LLM generates, tools execute, results feed back", "Loop continues until the run completes"] },
+    { "dot": "emerald", "title": "Completion + Async", "items": ["Messages persist to MongoDB", "Redis job completes, concurrency decrements", "Title generation runs asynchronously"] }
+  ]
+}

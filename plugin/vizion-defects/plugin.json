@@ -1,0 +1,7 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "vizion-defects",
+  "version": "0.1.0",
+  "description": "vizion-tpm:BMW 缺陷数据库(octane_defects)只读查询 MCP server,pi 式 agent 自主探索",
+  "author": { "name": "ZE-361" }
+}

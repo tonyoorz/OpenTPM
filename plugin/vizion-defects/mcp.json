@@ -1,0 +1,16 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "vizion-tpm": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${PLUGIN_ROOT}/dist/index.js"],
+      "env": {
+        "DEFECT_DB_PATH": "C:\\Users\\q446328\\Desktop\\vizion-lab\\database\\source\\qgate_raw.db",
+        "EXPORT_DIR": "C:\\Users\\q446328\\Desktop\\LibreChat\\client\\public\\exports",
+        "EXPORT_BASE_URL": "http://10.165.22.10:3080/exports"
+      },
+      "cwd": "${PLUGIN_ROOT}"
+    }
+  }
+}

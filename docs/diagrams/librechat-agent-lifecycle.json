@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "diagram_type": "lifecycle",
+  "meta": {
+    "title": "Agent Run Lifecycle",
+    "output": "docs/diagrams/librechat-agent-lifecycle.html",
+    "quality_profile": "showcase",
+    "locale": "en",
+    "viewBox": [980, 660],
+    "views": [
+      { "id": "main-flow", "label": "Main flow", "focus": ["queued", "initializing", "running", "streaming", "completed"], "note": "Follow the ordered phases from request to completion." },
+      { "id": "human-gates", "label": "Human gates", "focus": ["running", "approval", "steering", "streaming"], "note": "See where the run pauses for human input." },
+      { "id": "recovery", "label": "Recovery and exits", "focus": ["running", "failed", "cancelled", "expired", "completed"], "note": "Retryable failure vs terminal exits." }
+    ]
+  },
+  "lanes": [
+    { "id": "main", "label": "Lifecycle phases" },
+    { "id": "waiting", "label": "Human waits" },
+    { "id": "exceptions", "label": "Recovery" },
+    { "id": "terminal", "label": "Terminal" }
+  ],
+  "states": [
+    { "id": "queued", "type": "start", "label": "Queued", "sublabel": "request accepted", "lane": "main", "col": 0, "step": "01" },
+    { "id": "initializing", "type": "active", "label": "Initializing", "sublabel": "client + agent setup", "lane": "main", "col": 1, "step": "02" },
+    { "id": "running", "type": "active", "label": "Running", "sublabel": "LLM + tool loop", "lane": "main", "col": 2, "step": "03" },
+    { "id": "streaming", "type": "active", "label": "Streaming", "sublabel": "SSE output", "lane": "main", "col": 3, "step": "04" },
+    { "id": "completed", "type": "success", "label": "Completed", "sublabel": "response saved", "lane": "main", "col": 4, "step": "05" },
+    { "id": "approval", "type": "waiting", "label": "Needs Approval", "sublabel": "HITL gate", "lane": "waiting", "col": 1, "tag": "pause" },
+    { "id": "steering", "type": "waiting", "label": "Steering", "sublabel": "mid-run inject", "lane": "waiting", "col": 2, "tag": "wait" },
+    { "id": "failed", "type": "failure", "label": "Failed", "sublabel": "recoverable", "lane": "exceptions", "col": 0, "yOffset": 78, "tag": "retryable" },
+    { "id": "cancelled", "type": "failure", "label": "Cancelled", "sublabel": "user abort", "lane": "terminal", "col": 0, "tag": "terminal" },
+    { "id": "expired", "type": "failure", "label": "Expired", "sublabel": "timeout", "lane": "terminal", "col": 1, "tag": "terminal" }
+  ],
+  "transitions": [
+    { "id": "t1", "from": "queued", "to": "initializing", "variant": "emphasis" },
+    { "id": "t2", "from": "initializing", "to": "running", "variant": "emphasis" },
+    { "id": "t3", "from": "running", "to": "streaming", "variant": "emphasis" },
+    { "id": "t4", "from": "streaming", "to": "completed", "variant": "emphasis" },
+    { "id": "t5", "from": "running", "to": "approval", "variant": "security", "route": "drop" },
+    { "id": "t6", "from": "approval", "to": "running", "variant": "emphasis", "route": "drop", "label": "approved", "labelAt": [430, 200] },
+    { "id": "t7", "from": "streaming", "to": "steering", "variant": "default", "route": "drop" },
+    { "id": "t8", "from": "steering", "to": "running", "variant": "emphasis", "route": "drop", "label": "injected", "labelAt": [580, 240] },
+    { "id": "t9", "from": "running", "to": "failed", "variant": "security", "fromSide": "left", "toSide": "left", "via": [[320, 157], [320, 385]] },
+    { "id": "t10", "from": "failed", "to": "running", "variant": "emphasis", "fromSide": "left", "toSide": "top", "via": [[20, 385], [20, 80], [402, 80]] },
+    { "id": "t11", "from": "approval", "to": "cancelled", "variant": "security", "route": "bottom-channel" },
+    { "id": "t12", "from": "steering", "to": "expired", "variant": "security", "route": "drop" }
+  ],
+  "cards": [
+    { "dot": "emerald", "title": "Main Path", "items": ["Five ordered phases: queue, init, run, stream, complete", "The primary lifecycle is one horizontal rail", "Completion persists the response and cleans up the job"] },
+    { "dot": "amber", "title": "Human Gates", "items": ["HITL approval pauses execution for tool confirmation", "Steering injects new instructions mid-run", "Both wait states return to Running, not terminal"] },
+    { "dot": "rose", "title": "Recovery + Exits", "items": ["Failed loops back to Running while retry budget remains", "Cancelled exits from rejected approval", "Expired exits from steering timeout"] }
+  ]
+}

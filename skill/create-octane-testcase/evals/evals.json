@@ -1,0 +1,26 @@
+{
+  "skill_name": "create-octane-testcase",
+  "evals": [
+    {
+      "id": 1,
+      "name": "cpu-load-regression-from-defect",
+      "prompt": "帮我基于缺陷 D2804379 创建一个测试用例，link 到 feature 2811042。先读一下这个缺陷的内容，生成测试用例的 description 和 steps 给我看一下，先别写入 Octane。",
+      "expected_output": "A structured HTML description (Objective, Reference, Preconditions, baseline/regression tables, pass/fail criteria) and a plain-text steps script with [PreCon]/action/? lines, generated from defect 2804379's CPU load regression info. No Octane write occurs.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "drivetrain-defect-to-test",
+      "prompt": "从 defect 2609066 (CCM Drivetrain limited power reduction, High severity) 生成一个测试用例的草稿，我要先 review 内容再决定写不写。本地 DB 里应该有这个缺陷。",
+      "expected_output": "Reads defect 2609066 from local SQLite, generates a description + steps draft focused on reproducing/verifying the drivetrain power reduction issue. Shows the content to the user without writing to Octane.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "offline-draft-with-explicit-fields",
+      "prompt": "I have a defect in mind but it's not in the DB yet. The defect is D2762063, name 'speech can not wakeup', severity Medium, software_version pu2707_i420-26w32.1-1, ECU IDCEVO-25, lead_model NA5. Can you draft a test case description and steps from this? Just the content, don't write to Octane.",
+      "expected_output": "Uses the user-provided fields directly (no DB read needed since defect details are given inline), generates a description + steps draft. Should handle the case where the defect isn't in the local DB gracefully.",
+      "files": []
+    }
+  ]
+}

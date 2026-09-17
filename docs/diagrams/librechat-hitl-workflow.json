@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "HITL Tool Approval Workflow",
+    "output": "docs/diagrams/librechat-hitl-workflow.html",
+    "quality_profile": "showcase",
+    "locale": "en",
+    "viewBox": [920, 600],
+    "views": [
+      { "id": "detect", "label": "Detect and pause", "focus": ["llm_call", "policy", "interrupt", "persist"], "note": "From LLM tool call to paused run." },
+      { "id": "decide", "label": "User decides", "focus": ["persist", "notify", "decide", "resume"], "note": "User reviews and approves or rejects." },
+      { "id": "after", "label": "After decision", "focus": ["resume", "execute", "abort"], "note": "Execute tool or abort the run." }
+    ]
+  },
+  "lanes": [
+    { "id": "runtime", "label": "Agent Runtime" },
+    { "id": "policy", "label": "HITL Policy" },
+    { "id": "user", "label": "User Decision" },
+    { "id": "outcome", "label": "Outcome" }
+  ],
+  "phases": [
+    { "id": "detect", "label": "Detect", "fromCol": 0, "toCol": 1 },
+    { "id": "pause", "label": "Pause + notify", "fromCol": 2, "toCol": 3, "variant": "emphasis" },
+    { "id": "act", "label": "Act on decision", "fromCol": 4, "toCol": 5, "variant": "dashed" }
+  ],
+  "mainPath": ["llm_call", "policy", "interrupt", "persist"],
+  "nodes": [
+    { "id": "llm_call", "lane": "runtime", "col": 0, "type": "cloud", "label": "LLM Tool Call", "sublabel": "tool_calls" },
+    { "id": "policy", "lane": "policy", "col": 1, "type": "security", "label": "Check Policy", "sublabel": "approval policy", "tag": "HITL" },
+    { "id": "interrupt", "lane": "runtime", "col": 2, "type": "backend", "label": "Interrupt", "sublabel": "pause Run" },
+    { "id": "persist", "lane": "runtime", "col": 3, "type": "database", "label": "Persist", "sublabel": "checkpoint" },
+    { "id": "notify", "lane": "user", "col": 2, "type": "frontend", "label": "Notify", "sublabel": "SSE event" },
+    { "id": "decide", "lane": "user", "col": 4, "type": "external", "label": "User Decides", "sublabel": "approve / reject" },
+    { "id": "resume", "lane": "runtime", "col": 5, "type": "backend", "label": "Resume", "sublabel": "POST /resume" },
+    { "id": "execute", "lane": "outcome", "col": 5, "type": "backend", "label": "Execute Tool", "sublabel": "approved" },
+    { "id": "abort", "lane": "outcome", "col": 4, "type": "security", "label": "Abort", "sublabel": "rejected", "tag": "terminal" }
+  ],
+  "edges": [
+    { "from": "llm_call", "to": "policy", "label": "tool_calls", "variant": "emphasis" },
+    { "from": "policy", "to": "interrupt", "label": "needs approval", "variant": "security" },
+    { "from": "interrupt", "to": "persist", "label": "checkpoint", "labelAt": [330, 80] },
+    { "from": "persist", "to": "notify", "label": "requires_action", "variant": "dashed", "labelAt": [380, 210] },
+    { "from": "notify", "to": "decide", "label": "review", "variant": "emphasis", "labelAt": [560, 260] },
+    { "from": "decide", "to": "resume", "label": "POST resume", "variant": "emphasis", "labelAt": [680, 230] },
+    { "from": "resume", "to": "execute", "label": "approved", "variant": "emphasis", "labelAt": [680, 320] },
+    { "from": "decide", "to": "abort", "label": "rejected", "variant": "security", "role": "error", "labelAt": [580, 420] }
+  ],
+  "cards": [
+    { "dot": "rose", "title": "Policy Gate", "items": ["Every tool call is checked against the approval policy", "resolveToolApprovalPolicy decides if HITL is needed", "Auto-approved tools skip the interrupt entirely"] },
+    { "dot": "amber", "title": "Pause Mechanism", "items": ["LangGraph interrupt freezes the run state", "Pending action is persisted to Redis checkpoint", "SSE requires_action event reaches the user"] },
+    { "dot": "emerald", "title": "Two Outcomes", "items": ["Approved: resume injects approval, tool executes, run continues", "Rejected: run aborts or processes the rejection result", "Timeout: ApprovalTtl expires, job auto-cleans"] }
+  ]
+}

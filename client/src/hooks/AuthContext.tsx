@@ -167,8 +167,12 @@ const AuthContextProvider = ({
 
   const userQuery = useGetUserQuery({ enabled: !!(token ?? '') });
 
-  const login = (data: t.TLoginUser) => {
-    loginUser.mutate(data);
+  const login = async (data: t.TLoginUser): Promise<void> => {
+    try {
+      await loginUser.mutateAsync(data);
+    } catch {
+      return;
+    }
   };
 
   const silentRefresh = useCallback(() => {

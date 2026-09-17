@@ -63,10 +63,10 @@ function AuthLayout({
     <div className="relative flex min-h-screen flex-col bg-surface-primary">
       <Banner />
       <BlinkAnimation active={isFetching}>
-        <div className="mt-6 h-10 w-full bg-cover">
+        <div className="mt-6 flex h-24 w-full items-center justify-center sm:h-28">
           <img
             src="assets/logo.svg"
-            className="h-full w-full object-contain"
+            className="h-full w-auto object-contain"
             alt={localize('com_ui_logo', { 0: startupConfig?.appTitle ?? 'Vizion' })}
           />
         </div>

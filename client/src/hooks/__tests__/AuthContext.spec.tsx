@@ -13,6 +13,7 @@ import { AuthContextProvider, useAuthContext } from '../AuthContext';
 import { SESSION_KEY } from '~/utils';
 
 const mockNavigate = jest.fn();
+const mockLoginMutateAsync = jest.fn();
 jest.mock('react-router-dom', () => ({
   ...jest.requireActual('react-router-dom'),
   useNavigate: () => mockNavigate,
@@ -45,7 +46,7 @@ jest.mock('~/data-provider', () => ({
       onError: (...args: unknown[]) => void;
     }) => {
       mockCapturedLoginOptions = options;
-      return { mutate: jest.fn() };
+      return { mutate: jest.fn(), mutateAsync: mockLoginMutateAsync };
     },
   ),
   useLogoutUserMutation: jest.fn(
@@ -68,9 +69,11 @@ jest.mock('~/data-provider', () => ({
 }));
 
 const authConfig: TAuthConfig = { loginRedirect: '/login', test: true };
+let capturedLogin: ReturnType<typeof useAuthContext>['login'];
 
 function TestConsumer() {
   const ctx = useAuthContext();
+  capturedLogin = ctx.login;
   return (
     <div
       data-testid="consumer"
@@ -120,11 +123,38 @@ function renderProviderLive() {
 describe('AuthContextProvider — login onError redirect handling', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    capturedLogin = undefined as unknown as ReturnType<typeof useAuthContext>['login'];
     window.history.replaceState({}, '', '/login');
   });
 
   afterEach(() => {
     window.history.replaceState({}, '', '/');
+  });
+
+  it('waits for the login mutation to complete', async () => {
+    let completeLogin: () => void;
+    const loginMutation = new Promise<void>((resolve) => {
+      completeLogin = resolve;
+    });
+    mockLoginMutateAsync.mockReturnValueOnce(loginMutation);
+
+    renderProvider();
+
+    const loginPromise = capturedLogin({ email: 'test@example.com', password: 'password' });
+    expect(mockLoginMutateAsync).toHaveBeenCalledWith({
+      email: 'test@example.com',
+      password: 'password',
+    });
+
+    let loginCompleted = false;
+    void loginPromise.then(() => {
+      loginCompleted = true;
+    });
+    await Promise.resolve();
+    expect(loginCompleted).toBe(false);
+
+    completeLogin!();
+    await expect(loginPromise).resolves.toBeUndefined();
   });
 
   it('preserves a valid redirect_to param across login failure', () => {

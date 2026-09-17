@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "Message and State Data Flow",
+    "output": "docs/diagrams/librechat-data-flow.html",
+    "quality_profile": "showcase",
+    "locale": "en",
+    "viewBox": [920, 460]
+  },
+  "stages": [
+    { "label": "Input" },
+    { "label": "Process" },
+    { "label": "Persist" },
+    { "label": "Storage" }
+  ],
+  "nodes": [
+    { "id": "user_msg", "type": "external", "label": "User Message", "sublabel": "chat input", "stage": 0, "row": 0 },
+    { "id": "prelim", "type": "backend", "label": "Preliminary Save", "sublabel": "pre-store + job", "stage": 1, "row": 0 },
+    { "id": "agent_run", "type": "cloud", "label": "Agent Run", "sublabel": "LLM + tools", "stage": 1, "row": 1 },
+    { "id": "save", "type": "backend", "label": "saveMessage", "sublabel": "response + usage", "stage": 2, "row": 0 },
+    { "id": "checkpoint", "type": "database", "label": "Checkpoint", "sublabel": "step state", "stage": 2, "row": 1 },
+    { "id": "mongo", "type": "database", "label": "MongoDB", "sublabel": "messages", "stage": 3, "row": 0 },
+    { "id": "redis", "type": "database", "label": "Redis", "sublabel": "jobs + streams", "stage": 3, "row": 1 }
+  ],
+  "flows": [
+    { "from": "user_msg", "to": "prelim", "label": "store", "variant": "emphasis" },
+    { "from": "prelim", "to": "agent_run", "label": "process" },
+    { "from": "agent_run", "to": "save", "label": "response", "variant": "emphasis" },
+    { "from": "agent_run", "to": "checkpoint", "label": "per step", "variant": "dashed", "labelAt": [465, 220] },
+    { "from": "save", "to": "mongo", "label": "persist", "variant": "emphasis" },
+    { "from": "prelim", "to": "redis", "label": "create job", "variant": "dashed", "fromSide": "left", "toSide": "bottom", "via": [[240, 157], [240, 380], [745, 380]], "labelAt": [400, 370] },
+    { "from": "checkpoint", "to": "redis", "label": "persist", "variant": "dashed", "labelAt": [620, 220] },
+    { "from": "save", "to": "redis", "label": "complete job", "variant": "dashed", "route": "vertical-channel", "channelX": 660, "labelAt": [680, 220] }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Request + Process", "items": ["User message is pre-stored with a Redis job", "Agent Run executes the LLM + tool loop", "Content parts and usage feed saveMessage"] },
+    { "dot": "violet", "title": "Run State", "items": ["LangGraph checkpoints persist per-step state to Redis", "Each step's state is recoverable on reconnect", "Content parts aggregate streamed output"] },
+    { "dot": "emerald", "title": "Persistence", "items": ["saveMessage writes the final response to MongoDB", "Redis job completes on finish", "Memory extraction and title generation follow async"] }
+  ]
+}

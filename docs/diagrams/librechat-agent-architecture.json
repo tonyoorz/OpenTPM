@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "LibreChat Agent System Architecture",
+    "output": "docs/diagrams/librechat-agent-architecture.html",
+    "quality_profile": "showcase",
+    "locale": "en",
+    "viewBox": [1390, 680],
+    "views": [
+      {
+        "id": "request-path",
+        "label": "Request path",
+        "focus": ["browser", "routes", "request_ctrl", "init_client", "init_agent", "agent_client", "create_run", "run"],
+        "note": "Follow a user message from the browser through controllers into the LangGraph run."
+      },
+      {
+        "id": "tool-and-mcp",
+        "label": "Tools and MCP",
+        "focus": ["init_client", "tool_service", "mcp_service", "mcp_servers", "config_svc"],
+        "note": "See how tools are loaded and MCP servers are connected."
+      },
+      {
+        "id": "data-and-state",
+        "label": "Data and state",
+        "focus": ["agent_client", "create_run", "run", "mongo", "redis", "llm"],
+        "note": "Trace checkpoints, message persistence, and LLM calls."
+      }
+    ]
+  },
+  "components": [
+    { "id": "browser", "type": "frontend", "label": "React SPA", "sublabel": "Chat + Marketplace", "pos": [40, 240], "size": [120, 50], "tag": "client/src" },
+    { "id": "routes", "type": "backend", "label": "Express Routes", "sublabel": "agents/v1, openai", "pos": [220, 240], "size": [130, 50], "tag": "routes/agents" },
+    { "id": "request_ctrl", "type": "backend", "label": "ResumableAgentCtrl", "sublabel": "request.js", "pos": [420, 160], "size": [160, 50], "tag": "controllers/agents" },
+    { "id": "resume_ctrl", "type": "backend", "label": "ResumeAgentCtrl", "sublabel": "resume.js + protocol.js", "pos": [420, 310], "size": [160, 50], "tag": "HITL + reconnect" },
+    { "id": "init_client", "type": "backend", "label": "initializeClient", "sublabel": "client factory", "pos": [640, 240], "size": [130, 50], "tag": "services/Endpoints" },
+    { "id": "init_agent", "type": "backend", "label": "initializeAgent", "sublabel": "TS: provider, HITL", "pos": [840, 160], "size": [140, 50], "tag": "packages/api" },
+    { "id": "discovery", "type": "backend", "label": "Multi-Agent Discovery", "sublabel": "BFS graph + subagents", "pos": [840, 310], "size": [140, 50], "tag": "discovery.ts" },
+    { "id": "tool_service", "type": "backend", "label": "ToolService", "sublabel": "load + defer tools", "pos": [840, 400], "size": [130, 50], "tag": "services" },
+    { "id": "mcp_service", "type": "backend", "label": "MCP Manager", "sublabel": "connect + OAuth", "pos": [840, 490], "size": [130, 50], "tag": "services/MCP.js" },
+    { "id": "config_svc", "type": "backend", "label": "Config Service", "sublabel": "config + tool cache", "pos": [640, 400], "size": [130, 50], "tag": "services/Config.js" },
+    { "id": "agent_client", "type": "backend", "label": "AgentClient", "sublabel": "client.js — runtime", "pos": [1050, 240], "size": [130, 50], "tag": "core runtime" },
+    { "id": "create_run", "type": "backend", "label": "createRun", "sublabel": "run.ts — LangGraph", "pos": [1050, 70], "size": [130, 50], "tag": "packages/api" },
+    { "id": "callbacks", "type": "backend", "label": "Event Callbacks", "sublabel": "tool-end, progress", "pos": [1050, 350], "size": [130, 50], "tag": "callbacks.js" },
+    { "id": "run", "type": "cloud", "label": "LangGraph Run", "sublabel": "@librechat/agents SDK", "pos": [1240, 70], "size": [130, 50], "tag": "SDK" },
+    { "id": "llm", "type": "external", "label": "LLM Provider", "sublabel": "BMW Beacon models", "pos": [1240, 240], "size": [130, 50], "tag": "external" },
+    { "id": "mongo", "type": "database", "label": "MongoDB", "sublabel": "messages, agents", "pos": [1240, 350], "size": [130, 50], "tag": "primary store" },
+    { "id": "redis", "type": "database", "label": "Redis", "sublabel": "jobs, checkpoints", "pos": [1240, 460], "size": [130, 50], "tag": "job + state" },
+    { "id": "mcp_servers", "type": "external", "label": "MCP Servers", "sublabel": "defect DB, tools", "pos": [610, 490], "size": [120, 50], "tag": "external" }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Frontend", "wraps": ["browser"], "pad": 14 },
+    { "kind": "region", "label": "API Server (Node.js / Express)", "wraps": ["routes", "request_ctrl", "resume_ctrl", "init_client", "init_agent", "discovery", "tool_service", "mcp_service", "config_svc", "agent_client", "create_run", "callbacks"], "pad": 16 },
+    { "kind": "region", "label": "SDK + Data", "wraps": ["run", "llm", "mongo", "redis"], "pad": 14 },
+    { "kind": "security-group", "label": "External Services", "wraps": ["mcp_servers"], "pad": 12 }
+  ],
+  "connections": [
+    { "from": "browser", "to": "routes", "label": "HTTP / SSE", "variant": "emphasis" },
+    { "from": "routes", "to": "request_ctrl", "label": "chat", "variant": "emphasis" },
+    { "from": "routes", "to": "resume_ctrl", "label": "resume", "variant": "dashed" },
+    { "from": "request_ctrl", "to": "init_client", "label": "initialize", "variant": "emphasis", "labelDy": -12 },
+    { "from": "resume_ctrl", "to": "init_client", "label": "rebuild", "variant": "dashed", "labelDy": 12 },
+    { "from": "init_client", "to": "init_agent", "label": "TS init", "variant": "emphasis", "labelDy": -12 },
+    { "from": "init_client", "to": "discovery", "label": "BFS", "variant": "dashed", "labelDy": 12 },
+    { "from": "init_client", "to": "config_svc", "label": "cache", "fromSide": "bottom", "toSide": "top", "via": [[705, 320], [705, 400]], "labelAt": [705, 310] },
+    { "from": "init_client", "to": "tool_service", "label": "load tools", "fromSide": "right", "toSide": "top", "via": [[785, 265], [785, 370], [905, 370]], "labelAt": [760, 320] },
+    { "from": "mcp_service", "to": "mcp_servers", "label": "stdio / SSE", "variant": "security", "fromSide": "left", "toSide": "right", "labelDy": -14 },
+    { "from": "init_agent", "to": "create_run", "label": "build run", "variant": "emphasis", "fromSide": "right", "toSide": "left", "labelDy": -14 },
+    { "from": "init_client", "to": "agent_client", "label": "new AgentClient", "variant": "emphasis", "fromSide": "right", "toSide": "left" },
+    { "from": "agent_client", "to": "create_run", "label": "chatCompletion", "fromSide": "top", "toSide": "bottom", "labelAt": [970, 220] },
+    { "from": "create_run", "to": "run", "label": "processStream", "variant": "emphasis", "fromSide": "right", "toSide": "left", "labelAt": [1195, 130] },
+    { "from": "run", "to": "llm", "label": "LLM call", "variant": "emphasis", "fromSide": "bottom", "toSide": "top", "labelAt": [1330, 150] },
+    { "from": "run", "to": "mongo", "label": "save msgs", "variant": "dashed", "fromSide": "right", "toSide": "top", "via": [[1378, 95], [1378, 330], [1305, 330]], "labelAt": [1378, 200] },
+    { "from": "mongo", "to": "redis", "label": "checkpoint", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "labelAt": [1330, 415] },
+    { "from": "agent_client", "to": "callbacks", "label": "events", "fromSide": "bottom", "toSide": "top", "labelAt": [980, 300] },
+    { "from": "callbacks", "to": "browser", "label": "SSE stream", "variant": "dashed", "fromSide": "bottom", "toSide": "bottom", "via": [[1115, 420], [1115, 580], [100, 580], [100, 290]], "labelAt": [560, 570] },
+    { "from": "tool_service", "to": "mcp_service", "label": "resolve", "fromSide": "bottom", "toSide": "top", "labelAt": [905, 464] }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Layered Flow", "items": ["Frontend sends chat via HTTP/SSE to Express routes", "Controllers delegate to initializeClient — the client factory", "AgentClient owns the runtime: messages, stream, steering, HITL"] },
+    { "dot": "violet", "title": "TS Migration Boundary", "items": ["New backend code lives in packages/api (TypeScript)", "initializeAgent handles provider config, HITL, skills, memory", "Legacy JS in api/ is a thin wrapper calling into TS"] },
+    { "dot": "emerald", "title": "SDK + State", "items": ["@librechat/agents provides Run, MultiAgentGraph, Checkpointer", "Redis holds generation jobs, stream chunks, and checkpoints", "MongoDB persists messages, agents, conversations, and memory"] },
+    { "dot": "amber", "title": "External Tools", "items": ["MCP servers connect via stdio, SSE, or streamable HTTP", "OAuth flows handled by MCP Manager", "BMW Beacon LLM provides personal and golive model channels"] }
+  ]
+}
