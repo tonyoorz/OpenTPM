@@ -1,16 +1,20 @@
 services:
   api:
-    # build:
-    #   context: .
-    #   dockerfile: Dockerfile.multi
-    #   target: api-build
-    image: registry.librechat.ai/danny-avila/librechat-dev-api:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.multi
+      target: api-build
+    image: opentpm-api:local
     container_name: LibreChat-API
     ports:
       - 3080:3080
     depends_on:
-      - mongodb
-      - rag_api
+      mongodb:
+        condition: service_started
+      rag_api:
+        condition: service_started
+      session-keeper:
+        condition: service_healthy
     restart: always
     extra_hosts:
     - "host.docker.internal:host-gateway"
@@ -24,13 +28,16 @@ services:
       - LIBRECHAT_TEMP_CREDENTIALS_PATH=/app/data/.env.temp
       - RAG_PORT=${RAG_PORT:-8000}
       - RAG_API_URL=http://rag_api:${RAG_PORT:-8000}
+      - BMW_SSO_ENABLED=${BMW_SSO_ENABLED:-true}
+      - SESSION_KEEPER_URL=${SESSION_KEEPER_URL:-http://session-keeper:8090}
+      - BMW_SSO_TOOL_KEY=${BMW_SSO_TOOL_KEY:-octane}
       - PROXY=${PROXY:-}
       - HTTP_PROXY=${HTTP_PROXY:-}
       - HTTPS_PROXY=${HTTPS_PROXY:-}
-      - NO_PROXY=${NO_PROXY:-localhost,127.0.0.1,::1},${no_proxy:-},mongodb,chat-mongodb,meilisearch,chat-meilisearch,rag_api,vectordb,host.docker.internal
+      - NO_PROXY=${NO_PROXY:-localhost,127.0.0.1,::1},${no_proxy:-},mongodb,chat-mongodb,meilisearch,chat-meilisearch,rag_api,vectordb,session-keeper,host.docker.internal
       - http_proxy=${http_proxy:-}
       - https_proxy=${https_proxy:-}
-      - no_proxy=${no_proxy:-localhost,127.0.0.1,::1},${NO_PROXY:-},mongodb,chat-mongodb,meilisearch,chat-meilisearch,rag_api,vectordb,host.docker.internal
+      - no_proxy=${no_proxy:-localhost,127.0.0.1,::1},${NO_PROXY:-},mongodb,chat-mongodb,meilisearch,chat-meilisearch,rag_api,vectordb,session-keeper,host.docker.internal
       - ADMIN_PANEL_URL=${ADMIN_PANEL_URL:-http://admin.localhost}
     volumes:
       - type: bind
@@ -41,6 +48,31 @@ services:
       - ./logs:/app/api/logs
       - ./skill:/app/skill
       - librechat-data:/app/data
+
+  session-keeper:
+    build:
+      context: ./services/session-keeper
+      dockerfile: docker/Dockerfile.session_keeper
+    image: opentpm-session-keeper:local
+    restart: always
+    environment:
+      - LOG_LEVEL=${SESSION_KEEPER_LOG_LEVEL:-INFO}
+      - KEEPALIVE_INTERVAL_SECONDS=${SESSION_KEEPER_KEEPALIVE_INTERVAL_SECONDS:-120}
+      - SESSION_STORE_DIR=/data/sessions
+      - HTTP_PROXY=
+      - HTTPS_PROXY=
+      - http_proxy=
+      - https_proxy=
+      - NO_PROXY=
+      - no_proxy=
+    volumes:
+      - session-keeper-data:/data/sessions
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
 
   admin-panel:
     image: registry.librechat.ai/clickhouse/librechat-admin-panel:latest
@@ -114,3 +146,4 @@ services:
 volumes:
   pgdata2:
   librechat-data:
+  session-keeper-data:

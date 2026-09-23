@@ -195,6 +195,14 @@ deploy/
 start-all.bat
 api/server/services/Files/Audio/__pycache__/
 client/public/exports/
+services/session-keeper/.env
+services/session-keeper/.env.*
+services/session-keeper/.netrc
+services/session-keeper/cookie.txt
+services/session-keeper/login_info.txt
+services/session-keeper/session_data/
+services/session-keeper/**/__pycache__/
+services/session-keeper/.pytest_cache/
 plugin/*/dist/
 plugin/*/node_modules/
 plugin/*/data/*.db
