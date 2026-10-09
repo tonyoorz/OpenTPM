@@ -192,7 +192,6 @@ scripts/activity-labels/results/
 
 # OpenTPM exclusions — BMW internal secrets & runtime artifacts only
 deploy/
-start-all.bat
 api/server/services/Files/Audio/__pycache__/
 client/public/exports/
 services/session-keeper/.env

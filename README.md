@@ -45,6 +45,7 @@
 - Node.js v24+
 - MongoDB 7.0+
 - npm (comes with Node.js)
+- Python 3.10+ (required when BMW SSO is enabled)
 
 ### Installation
 
@@ -60,6 +61,17 @@ npm run smart-reinstall
 cp .env.example .env
 # Edit .env with your configuration
 
+# When BMW_SSO_ENABLED=true, install the BMW SSO session keeper once
+cd services/session-keeper
+python -m venv .venv
+.venv/bin/python -m pip install -e ".[session-keeper]"
+
+# Start the BMW SSO session keeper (port 8090)
+.venv/bin/python -m session_keeper
+
+# In another terminal, return to the repository root
+cd ../..
+
 # Start the backend (port 3080)
 npm run backend:dev
 
@@ -67,13 +79,35 @@ npm run backend:dev
 npm run frontend:dev
 ```
 
+When `BMW_SSO_ENABLED=true`, the backend requires the session keeper at
+`SESSION_KEEPER_URL` (default: `http://localhost:8090`). Without it, BMW login
+requests fail before the provided credentials are verified. Set
+`BMW_SSO_ENABLED=false` if BMW SSO is not needed for local development.
+
+On Windows PowerShell, replace `.venv/bin/python` with `.venv\Scripts\python.exe`.
+
+### Windows Development
+
+After completing the one-time setup above, start the complete local development
+stack with a single command:
+
+```powershell
+npm run dev
+```
+
+The launcher reuses running services and starts any missing MongoDB,
+session-keeper, backend, or frontend process. Backend changes reload through
+nodemon, frontend changes reload through Vite, and session-keeper changes reload
+when it is started by the launcher.
+
 ### Docker Deployment
 
 ```bash
 cp .env.example .env
 # Edit .env with your configuration
 
-docker compose up -d
+# BMW deployment: starts API, session keeper, MongoDB, and supporting services
+docker compose -f deploy-compose.yml up --build -d
 ```
 
 ## Tech Stack
