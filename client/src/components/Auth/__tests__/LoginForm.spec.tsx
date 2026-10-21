@@ -142,6 +142,56 @@ test('submits login form', async () => {
   expect(mockLogin).toHaveBeenCalledWith({ email: 'test@example.com', password: 'password' });
 });
 
+test('submits mobile strong authentication by default for BMW SSO', async () => {
+  const { getByLabelText } = render(
+    <Login
+      onSubmit={mockLogin}
+      startupConfig={{ ...mockStartupConfig, bmwSsoLoginEnabled: true }}
+      error={undefined}
+      setError={jest.fn()}
+    />,
+  );
+  const usernameInput = getByLabelText('BMW QNumber');
+  const passwordInput = getByLabelText(/strong authentication pin/i);
+  const submitButton = getByTestId(document.body, 'login-button');
+
+  await userEvent.type(usernameInput, 'q123456');
+  await userEvent.type(passwordInput, '12345678');
+  await userEvent.click(submitButton);
+
+  expect(mockLogin).toHaveBeenCalledWith({
+    email: 'q123456',
+    password: '12345678',
+    strong_auth: true,
+    strong_auth_type: 'mobile',
+  });
+});
+
+test('submits browser authentication when BMW mobile strong authentication is disabled', async () => {
+  const { getByLabelText, getByRole } = render(
+    <Login
+      onSubmit={mockLogin}
+      startupConfig={{ ...mockStartupConfig, bmwSsoLoginEnabled: true }}
+      error={undefined}
+      setError={jest.fn()}
+    />,
+  );
+  const usernameInput = getByLabelText('BMW QNumber');
+  const mobileStrongAuth = getByRole('checkbox', { name: /use mobile strong authentication/i });
+
+  await userEvent.click(mobileStrongAuth);
+  await userEvent.type(usernameInput, 'q123456');
+  await userEvent.type(getByLabelText(/^password$/i), 'password');
+  await userEvent.click(getByTestId(document.body, 'login-button'));
+
+  expect(mockLogin).toHaveBeenCalledWith({
+    email: 'q123456',
+    password: 'password',
+    strong_auth: false,
+    strong_auth_type: 'mobile',
+  });
+});
+
 test('displays validation error messages', async () => {
   const { getByLabelText, getByText } = render(
     <Login

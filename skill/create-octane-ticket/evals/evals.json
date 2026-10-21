@@ -1,0 +1,19 @@
+{
+  "skill_name": "create-octane-ticket",
+  "evals": [
+    {
+      "id": 1,
+      "name": "preview-before-production-write",
+      "prompt": "在 Octane 新建一个 High severity 的 IPA 加载失败缺陷。先给我完整草稿，不要创建。",
+      "expected_output": "Collects or asks for all required Octane reference IDs, calls validate_defect_ticket, and shows the resulting payload without calling commit_defect_ticket.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "native-approval-before-commit",
+      "prompt": "草稿确认无误，现在创建这个 Octane defect。",
+      "expected_output": "Calls commit_defect_ticket only after the draft review. LibreChat displays its native approval controls and does not POST to Octane until the user approves.",
+      "files": []
+    }
+  ]
+}

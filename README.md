@@ -88,8 +88,30 @@ On Windows PowerShell, replace `.venv/bin/python` with `.venv\Scripts\python.exe
 
 ### Windows Development
 
-After completing the one-time setup above, start the complete local development
-stack with a single command:
+For a BMW SSO-enabled local installation, complete this one-time setup from
+PowerShell:
+
+```powershell
+npm run smart-reinstall
+
+Set-Location services\session-keeper
+py -3 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ".[session-keeper]"
+Set-Location ..\..
+```
+
+MongoDB must be available at the `MONGO_URI` configured in `.env` before
+starting the application. The default launcher starts MongoDB automatically
+only when `mongod.exe` is at
+`$env:USERPROFILE\Desktop\mongodb\mongodb-win32-x86_64-windows-7.0.20\bin\mongod.exe`.
+For another installation path, configure the launcher in the same terminal:
+
+```powershell
+$env:MONGOD_PATH = 'C:\path\to\mongod.exe'
+$env:MONGOD_DATA_PATH = 'C:\path\to\mongodb-data'
+```
+
+Start the complete local development stack with one command:
 
 ```powershell
 npm run dev
@@ -99,6 +121,55 @@ The launcher reuses running services and starts any missing MongoDB,
 session-keeper, backend, or frontend process. Backend changes reload through
 nodemon, frontend changes reload through Vite, and session-keeper changes reload
 when it is started by the launcher.
+
+The local services are available at:
+
+- Frontend and login: `http://localhost:3090/login`
+- Backend health: `http://localhost:3080/health`
+- BMW SSO session keeper: `http://localhost:8090/docs` (local machine only)
+
+For LAN access, users should connect only to the backend or deployed frontend.
+The session keeper must remain bound to `127.0.0.1`; it handles credentials and
+cached SSO cookies for every user and is an internal backend dependency.
+
+To run the services in separate terminals instead of using the launcher, start
+MongoDB first, then run:
+
+```powershell
+# Terminal 1, only when BMW_SSO_ENABLED=true
+.\services\session-keeper\.venv\Scripts\python.exe -m uvicorn session_keeper.app:app --host 127.0.0.1 --port 8090 --reload
+
+# Terminal 2
+npm run backend:dev
+
+# Terminal 3
+npm run frontend:dev
+```
+
+Do not run the separate frontend command while `npm run dev` is running; Vite
+will select port 3091 because the launcher already uses port 3090.
+
+### Applying Local Changes
+
+With `npm run dev` running, frontend changes are applied by Vite hot reload,
+while backend and session-keeper Python changes reload automatically. Restart
+the local stack after changing `.env`, `start-all.bat`, dependencies, or other
+startup configuration:
+
+```powershell
+# Stop the frontend, backend, and session keeper without stopping MongoDB data.
+$ports = 3080, 3090, 8090
+Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue |
+  Where-Object { $_.LocalPort -in $ports } |
+  Select-Object -ExpandProperty OwningProcess -Unique |
+  ForEach-Object { Stop-Process -Id $_ -Force }
+
+# Start the local stack again.
+npm run dev
+```
+
+If MongoDB was also started for this development session and should be stopped,
+run `Stop-Process -Name mongod` separately.
 
 ### Docker Deployment
 

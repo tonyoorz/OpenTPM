@@ -188,6 +188,7 @@ class SessionStore:
     def _dict_to_session(cookies: list) -> requests.Session:
         """Reconstruct a Session from a list of cookie dicts."""
         session = requests.Session()
+        session.trust_env = False
         for c in cookies:
             session.cookies.set(
                 c["name"],

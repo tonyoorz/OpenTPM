@@ -23,6 +23,7 @@ import { buildTestCaseDescription, buildTestStepsScript, DEFAULT_SERVICEPACK_NOD
 import { discoverDefectPatterns } from './patterns.js';
 import { toCsv, writeExport, draftsToCsv } from './csv.js';
 import { draftsToXlsx, genericToXlsx, writeXlsxExport } from './xlsx.js';
+import { registerDefectTicketTools } from './defect-tools.js';
 import { stageDraft, stageDraftBatch, getStagedDrafts, clearStagedDrafts, getStagedCount } from './stage.js';
 import type { StagedDraft } from './stage.js';
 
@@ -34,6 +35,8 @@ const server = new McpServer({
   name: 'vizion-testcase',
   version: '0.1.0',
 });
+
+registerDefectTicketTools(server);
 
 server.registerTool('read_defect', {
   description:

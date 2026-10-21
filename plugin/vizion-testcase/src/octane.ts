@@ -8,6 +8,8 @@
  * Cookie 从环境变量 OCTANE_COOKIE_FILE 指向的文件读取。
  */
 import { readFileSync } from 'node:fs';
+import type { DefectTicketDraft } from './defect.js';
+import { buildDefectFields } from './defect.js';
 
 const OCTANE_BASE_URL = process.env['OCTANE_BASE_URL'] ?? 'https://octane-prod.bmwgroup.net';
 const SHARED_SPACE_ID = process.env['OCTANE_SHARED_SPACE_ID'] ?? '1002';
@@ -166,6 +168,22 @@ export async function createTestCase(params: CreateTestCaseParams): Promise<{ id
   return { id: String(rows[0]?.id ?? '') };
 }
 
+/** 创建 Octane Defect（生产写入 — 需用户确认后调用）。 */
+export async function createDefect(draft: DefectTicketDraft): Promise<{ id: string }> {
+  const response = await fetch(`${API_BASE}/defects`, {
+    method: 'POST',
+    headers: { ...buildHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ data: [{ type: 'defect', ...buildDefectFields(draft) }] }),
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!response.ok) {
+    throw new Error(`Octane create defect ${response.status}: ${await response.text()}`);
+  }
+  const payload = await response.json() as { data?: OctaneRow[] };
+  const rows = payload.data ?? [];
+  return { id: String(rows[0]?.id ?? '') };
+}
+
 /** 写入测试步骤到 /tests/{id}/script。 */
 export async function writeTestSteps(testId: string, stepsText: string): Promise<Record<string, unknown>> {
   const response = await fetch(`${API_BASE}/tests/${testId}/script`, {
@@ -195,4 +213,9 @@ export async function fetchTestSteps(testId: string): Promise<Record<string, unk
 /** 生成 Octane UI 链接。 */
 export function buildOctaneUrl(testId: string): string {
   return `https://octane-prod.bmwgroup.net/ui/entity-navigation?p=1002/2001&entityType=test&id=${testId}`;
+}
+
+/** 生成 Octane Defect UI 链接。 */
+export function buildDefectUrl(defectId: string): string {
+  return `https://octane-prod.bmwgroup.net/ui/entity-navigation?p=1002/2001&entityType=defect&id=${defectId}`;
 }

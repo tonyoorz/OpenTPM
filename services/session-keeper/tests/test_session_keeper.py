@@ -107,6 +107,18 @@ class TestSessionStore:
         store2 = SessionStore(store_dir=self.tmpdir)
         assert store2.validate_and_get("tool_x", "q123", "wrongpass") is None
 
+    def test_persisted_session_bypasses_proxy_environment(self):
+        session = requests.Session()
+        session.cookies.set("persist", "yes", domain=".test.com")
+        session.trust_env = False
+        self.store.put("persist_tool", "q123", "mypass", session)
+
+        store2 = SessionStore(store_dir=self.tmpdir)
+        restored = store2.validate_and_get("persist_tool", "q123", "mypass")
+
+        assert restored is not None
+        assert restored.trust_env is False
+
     def test_cookies_to_dict_roundtrip(self):
         session = requests.Session()
         session.cookies.set("c1", "v1", domain=".d.com", path="/p")

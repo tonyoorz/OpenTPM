@@ -705,7 +705,7 @@ export function getOpenAILLMConfig({
           }) || hasModelKwargs;
         continue;
       }
-      if (knownOpenAIParams.has(key)) {
+      if (key === 'max_tokens' || knownOpenAIParams.has(key)) {
         (llmConfig as Record<string, unknown>)[key] = value;
       } else {
         hasModelKwargs = true;

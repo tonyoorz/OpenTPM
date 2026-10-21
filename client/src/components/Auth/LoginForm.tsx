@@ -1,7 +1,15 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { useForm } from 'react-hook-form';
 import { Turnstile } from '@marsidev/react-turnstile';
-import { ThemeContext, SecretInput, Spinner, Button, Input, isDark } from '@librechat/client';
+import {
+  ThemeContext,
+  SecretInput,
+  Spinner,
+  Button,
+  Checkbox,
+  Input,
+  isDark,
+} from '@librechat/client';
 import type { TLoginUser, TStartupConfig } from 'librechat-data-provider';
 import type { TAuthContext } from '~/common';
 import { useResendVerificationEmail } from '~/data-provider';
@@ -26,9 +34,21 @@ const LoginForm: React.FC<TLoginFormProps> = ({ onSubmit, startupConfig, error, 
   } = useForm<TLoginUser>();
   const [showResendLink, setShowResendLink] = useState<boolean>(false);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [mobileStrongAuth, setMobileStrongAuth] = useState<boolean>(true);
 
   const useUsernameLogin = startupConfig?.ldap?.username || startupConfig?.bmwSsoLoginEnabled;
   const isBmwSso = Boolean(startupConfig?.bmwSsoLoginEnabled);
+  const passwordLabel =
+    isBmwSso && mobileStrongAuth
+      ? localize('com_auth_bmw_strong_auth_pin')
+      : localize('com_auth_password');
+  let loginIdentifierLabel = localize('com_auth_email_address');
+  if (useUsernameLogin) {
+    loginIdentifierLabel = localize('com_auth_username').replace(/ \(.*$/, '');
+  }
+  if (isBmwSso) {
+    loginIdentifierLabel = localize('com_auth_bmw_username');
+  }
   const validTheme = isDark(theme) ? 'dark' : 'light';
   const requireCaptcha = Boolean(startupConfig.turnstile?.siteKey);
   const authInputClassName =
@@ -73,6 +93,26 @@ const LoginForm: React.FC<TLoginFormProps> = ({ onSubmit, startupConfig, error, 
     resendLinkMutation.mutate({ email });
   };
 
+  const handleLoginSubmit = (data: TLoginUser) => {
+    if (!isBmwSso) {
+      return onSubmit(data);
+    }
+
+    return onSubmit({
+      ...data,
+      strong_auth: mobileStrongAuth,
+      strong_auth_type: 'mobile',
+    });
+  };
+
+  let submitButtonContent: React.ReactNode = localize('com_auth_continue');
+  if (isBmwSso) {
+    submitButtonContent = localize('com_auth_bmw_login');
+  }
+  if (isSubmitting) {
+    submitButtonContent = <Spinner />;
+  }
+
   return (
     <>
       {showResendLink && (
@@ -92,7 +132,7 @@ const LoginForm: React.FC<TLoginFormProps> = ({ onSubmit, startupConfig, error, 
         className="mt-6"
         aria-label="Login form"
         method="POST"
-        onSubmit={handleSubmit((data) => onSubmit(data))}
+        onSubmit={handleSubmit(handleLoginSubmit)}
       >
         <div className="mb-4">
           <div className="relative">
@@ -113,11 +153,7 @@ const LoginForm: React.FC<TLoginFormProps> = ({ onSubmit, startupConfig, error, 
               placeholder=" "
             />
             <label htmlFor="email" className={authLabelClassName}>
-              {isBmwSso
-                ? localize('com_auth_bmw_username')
-                : useUsernameLogin
-                  ? localize('com_auth_username').replace(/ \(.*$/, '')
-                  : localize('com_auth_email_address')}
+              {loginIdentifierLabel}
             </label>
           </div>
           {renderError('email')}
@@ -127,19 +163,21 @@ const LoginForm: React.FC<TLoginFormProps> = ({ onSubmit, startupConfig, error, 
             <SecretInput
               id="password"
               autoComplete="current-password"
-              aria-label={localize('com_auth_password')}
+              aria-label={passwordLabel}
               {...register('password', {
                 required: localize('com_auth_password_required'),
-                minLength: {
-                  value: startupConfig?.minPasswordLength || 8,
-                  message: localize('com_auth_password_min_length'),
-                },
+                minLength: isBmwSso
+                  ? undefined
+                  : {
+                      value: startupConfig?.minPasswordLength || 8,
+                      message: localize('com_auth_password_min_length'),
+                    },
                 maxLength: { value: 128, message: localize('com_auth_password_max_length') },
               })}
               aria-invalid={!!errors.password}
               className={authSecretInputClassName}
               placeholder=" "
-              label={localize('com_auth_password')}
+              label={passwordLabel}
               labelClassName={authLabelClassName}
               controlsClassName="right-2"
               buttonClassName={authSecretButtonClassName}
@@ -147,6 +185,19 @@ const LoginForm: React.FC<TLoginFormProps> = ({ onSubmit, startupConfig, error, 
           </div>
           {renderError('password')}
         </div>
+        {isBmwSso && (
+          <div className="mb-4 flex items-center gap-2">
+            <Checkbox
+              id="bmw-mobile-strong-auth"
+              checked={mobileStrongAuth}
+              onCheckedChange={(checked) => setMobileStrongAuth(checked === true)}
+              aria-label={localize('com_auth_bmw_mobile_strong_auth')}
+            />
+            <label htmlFor="bmw-mobile-strong-auth" className="text-sm text-text-secondary-alt">
+              {localize('com_auth_bmw_mobile_strong_auth')}
+            </label>
+          </div>
+        )}
         {startupConfig.passwordResetEnabled && (
           <a
             href="/forgot-password"
@@ -180,7 +231,7 @@ const LoginForm: React.FC<TLoginFormProps> = ({ onSubmit, startupConfig, error, 
             variant="submit"
             className="h-12 w-full rounded-2xl"
           >
-            {isSubmitting ? <Spinner /> : isBmwSso ? localize('com_auth_bmw_login') : localize('com_auth_continue')}
+            {submitButtonContent}
           </Button>
         </div>
       </form>

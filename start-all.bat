@@ -1,5 +1,5 @@
 @echo off
-setlocal EnableExtensions
+setlocal EnableExtensions EnableDelayedExpansion
 set "ROOT_DIR=%~dp0"
 set "MONGOD_PATH=%MONGOD_PATH%"
 set "MONGOD_DATA_PATH=%MONGOD_DATA_PATH%"
@@ -34,13 +34,13 @@ if errorlevel 1 (
         echo [2/4] BMW session keeper is already running.
     ) else (
         set "SESSION_KEEPER_PYTHON=%ROOT_DIR%services\session-keeper\.venv\Scripts\python.exe"
-        if not exist "%SESSION_KEEPER_PYTHON%" (
+        if not exist "!SESSION_KEEPER_PYTHON!" (
             echo [2/4] Session keeper dependencies are not installed.
             echo Run the setup command in README.md, then run npm run dev again.
             exit /b 1
         )
         echo [2/4] Starting BMW session keeper...
-        start "OpenTPM Session Keeper" /D "%ROOT_DIR%services\session-keeper" "%SESSION_KEEPER_PYTHON%" -m uvicorn session_keeper.app:app --host 0.0.0.0 --port 8090 --reload
+        start "OpenTPM Session Keeper" /D "%ROOT_DIR%services\session-keeper" "%SESSION_KEEPER_PYTHON%" -m uvicorn session_keeper.app:app --host 127.0.0.1 --port 8090 --reload
     )
 )
 
@@ -49,6 +49,7 @@ if not errorlevel 1 (
     echo [3/4] Backend is already running.
 ) else (
     echo [3/4] Starting backend with nodemon...
+    set "NODE_USE_SYSTEM_CA=1"
     start "OpenTPM Backend" /D "%ROOT_DIR%" npm.cmd run backend:dev
 )
 

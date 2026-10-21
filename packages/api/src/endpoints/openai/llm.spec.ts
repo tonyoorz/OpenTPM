@@ -1,3 +1,4 @@
+import { ChatOpenAI } from '@langchain/openai';
 import {
   Verbosity,
   EModelEndpoint,
@@ -57,6 +58,31 @@ describe('getOpenAILLMConfig', () => {
       expect(result.llmConfig).toHaveProperty('maxTokens', 4096);
       expect(result.llmConfig).not.toHaveProperty('max_tokens');
     });
+
+    it.each([undefined, 4096])(
+      'honors the endpoint output budget instead of model defaults (%s)',
+      (maxTokens) => {
+        const result = getOpenAILLMConfig({
+          apiKey: 'test-api-key',
+          streaming: true,
+          modelOptions: {
+            model: 'glm-5.3-flash',
+            max_tokens: maxTokens,
+          },
+          addParams: { max_tokens: 131072 },
+        });
+        const model = new ChatOpenAI({
+          apiKey: 'test-api-key',
+          model: result.llmConfig.model,
+          maxTokens: result.llmConfig.maxTokens,
+          modelKwargs: result.llmConfig.modelKwargs,
+        });
+
+        expect(model.invocationParams().max_tokens).toBe(131072);
+        expect(result.llmConfig).toHaveProperty('maxTokens', 131072);
+        expect(result.llmConfig.modelKwargs?.max_tokens).toBeUndefined();
+      },
+    );
   });
 
   describe('Empty String Handling (Issue Fix)', () => {

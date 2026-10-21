@@ -609,6 +609,8 @@ export type TLoginUser = {
   password: string;
   token?: string;
   backupCode?: string;
+  strong_auth?: boolean;
+  strong_auth_type?: 'mobile';
 };
 
 export type TLoginResponse = {

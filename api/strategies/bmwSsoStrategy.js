@@ -1,12 +1,13 @@
 const { Strategy: PassportLocalStrategy } = require('passport-local');
 const { logger } = require('@librechat/data-schemas');
 const { SystemRoles, ErrorTypes } = require('librechat-data-provider');
-const { getBalanceConfig, isEnabled } = require('@librechat/api');
+const { getBalanceConfig } = require('@librechat/api');
 const { createUser, findUser, updateUser, countUsers } = require('~/models');
 
-const SESSION_KEEPER_URL = (
-  process.env.SESSION_KEEPER_URL || 'http://localhost:8090'
-).replace(/\/+$/, '');
+const SESSION_KEEPER_URL = (process.env.SESSION_KEEPER_URL || 'http://localhost:8090').replace(
+  /\/+$/,
+  '',
+);
 const BMW_SSO_TOOL_KEY = process.env.BMW_SSO_TOOL_KEY || 'octane';
 const BMW_SSO_LOGIN_TIMEOUT_MS = Number(process.env.BMW_SSO_LOGIN_TIMEOUT_MS) || 120000;
 
@@ -15,7 +16,14 @@ const BMW_SSO_LOGIN_TIMEOUT_MS = Number(process.env.BMW_SSO_LOGIN_TIMEOUT_MS) ||
  * Returns `true` when the keeper acknowledges a valid session, `false` otherwise.
  * The keeper handles the full ForgeRock AM / SAML flow and session caching.
  */
-async function verifyWithSessionKeeper(username, password) {
+function getStrongAuthOptions(req) {
+  return {
+    strong_auth: req.body?.strong_auth === true,
+    strong_auth_type: 'mobile',
+  };
+}
+
+async function verifyWithSessionKeeper(username, password, strongAuthOptions) {
   const url = `${SESSION_KEEPER_URL}/sessions/${encodeURIComponent(BMW_SSO_TOOL_KEY)}`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), BMW_SSO_LOGIN_TIMEOUT_MS);
@@ -26,8 +34,7 @@ async function verifyWithSessionKeeper(username, password) {
       body: JSON.stringify({
         username,
         password,
-        strong_auth: false,
-        strong_auth_type: 'mobile',
+        ...strongAuthOptions,
       }),
       signal: controller.signal,
     });
@@ -63,7 +70,11 @@ async function bmwSsoLogin(req, username, password, done) {
       return done(null, false, { message: 'Username and password are required.' });
     }
 
-    const verified = await verifyWithSessionKeeper(username.trim(), password);
+    const verified = await verifyWithSessionKeeper(
+      username.trim(),
+      password,
+      getStrongAuthOptions(req),
+    );
     if (!verified) {
       logger.error(
         `[bmwSsoStrategy] Login failed — session_keeper rejected credentials [Username: ${username}] [Request-IP: ${req.ip}]`,
