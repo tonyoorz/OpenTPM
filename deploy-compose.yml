@@ -47,6 +47,7 @@ services:
       - ./uploads:/app/uploads
       - ./logs:/app/api/logs
       - ./skill:/app/skill
+      - ./plugin:/app/plugin
       - librechat-data:/app/data
 
   session-keeper:

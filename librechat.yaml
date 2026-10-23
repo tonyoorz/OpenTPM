@@ -1,0 +1,181 @@
+# LibreChat configuration for BMW Beacon enterprise models.
+# Mirrors vizion-lab/server/chatModelConfig.mjs routing: project-golive channel
+# for GLM/DeepSeek/qwen models, personal channel for doubao.
+# Built-in endpoints (openAI/anthropic/google) are hidden via ENDPOINTS=custom
+# in .env — the code is untouched, just not loaded.
+
+version: 1.3.14
+cache: true
+
+endpoints:
+  custom:
+    # Beacon project-golive channel. Upstream model names are case-sensitive
+    # (GLM-5.1, DeepSeek-V4-*) — the gateway rejects lowercase dropdown ids.
+    - name: 'Beacon GoLive'
+      apiKey: '${BEACON_API_KEY}'
+      baseURL: 'https://beaconapi.bmwbrill.cn/project-golive/v1'
+      models:
+        default:
+          - 'GLM-5.1'
+          - 'DeepSeek-V4-Pro'
+          - 'DeepSeek-V4-Flash'
+          - 'qwen3.7-max'
+          - 'qwen3.7-flash'
+          - 'qwen3.8-flash'
+          - 'glm-5.3-flash'
+        fetch: false
+      titleConvo: true
+      titleModel: 'qwen3.7-flash'
+      modelDisplayLabel: 'Beacon GoLive'
+      # Raise the default output token cap so large outputs (e.g. CSV export)
+      # complete in a single response instead of triggering the model's own
+      # "data too large, process in batches" truncation behavior.
+      addParams:
+        max_tokens: 131072
+
+    # Beacon personal channel (doubao). Distinct key from golive.
+    - name: 'Beacon Personal'
+      apiKey: '${BEACON_PERSONAL_API_KEY}'
+      baseURL: 'https://beaconapi.bmwbrill.cn/personal/v1'
+      models:
+        default:
+          - 'doubao-seed-2.1-turbo'
+        fetch: false
+      titleConvo: true
+      titleModel: 'doubao-seed-2.1-turbo'
+      modelDisplayLabel: 'Beacon Personal'
+      addParams:
+        max_tokens: 131072
+
+  # Agents endpoint: enables Skills, Agent Builder, and related capabilities.
+  # Reuses the custom Beacon endpoints as model providers via allowedProviders.
+  agents:
+    allowedProviders:
+      - 'Beacon GoLive'
+      - 'Beacon Personal'
+    titleConvo: true
+    titleModel: 'qwen3.7-flash'
+    titleEndpoint: 'Beacon GoLive'
+    toolApproval:
+      enabled: true
+      mode: bypass
+      ask:
+        - '*commit_defect_ticket'
+      reason: 'Review the complete production Octane Defect payload before it is created.'
+
+# Model specs: defines the model picker entries shown in the chat UI. The spec
+# marked `default: true` is auto-selected on every new conversation, overriding
+# the "last used" fallback. `prioritize: false` keeps the full model selector
+# visible so users can still switch to any model.
+modelSpecs:
+  prioritize: false
+  list:
+    - name: 'DeepSeek-V4-Flash'
+      label: 'DeepSeek V4 Flash'
+      default: true
+      preset:
+        endpoint: 'Beacon GoLive'
+        model: 'DeepSeek-V4-Flash'
+    - name: 'GLM-5.1'
+      label: 'GLM 5.1'
+      preset:
+        endpoint: 'Beacon GoLive'
+        model: 'GLM-5.1'
+    - name: 'DeepSeek-V4-Pro'
+      label: 'DeepSeek V4 Pro'
+      preset:
+        endpoint: 'Beacon GoLive'
+        model: 'DeepSeek-V4-Pro'
+    - name: 'qwen3.7-max'
+      label: 'Qwen 3.7 Max'
+      preset:
+        endpoint: 'Beacon GoLive'
+        model: 'qwen3.7-max'
+    - name: 'qwen3.7-flash'
+      label: 'Qwen 3.7 Flash'
+      preset:
+        endpoint: 'Beacon GoLive'
+        model: 'qwen3.7-flash'
+    - name: 'qwen3.8-flash'
+      label: 'Qwen 3.8 Flash'
+      preset:
+        endpoint: 'Beacon GoLive'
+        model: 'qwen3.8-flash'
+    - name: 'glm-5.3-flash'
+      label: 'GLM 5.3 Flash'
+      preset:
+        endpoint: 'Beacon GoLive'
+        model: 'glm-5.3-flash'
+    - name: 'doubao-seed-2.1-turbo'
+      label: 'Doubao Seed 2.1 Turbo'
+      preset:
+        endpoint: 'Beacon Personal'
+        model: 'doubao-seed-2.1-turbo'
+
+# Memory agent: auto-extracts user facts from recent conversation after each
+# chat completes. Uses the lightweight DeepSeek-V4-Flash on the Beacon GoLive
+# channel. Without this block, memory is enabled but never auto-populated.
+memory:
+  agent:
+    enabled: true
+    provider: 'Beacon GoLive'
+    model: 'DeepSeek-V4-Flash'
+    model_parameters:
+      temperature: 0.1
+
+mcpSettings:
+  allowedAddresses:
+    - 'mcp.taee-ai-prod.eu-west-1.aws.cloud.bmw:443'
+
+# MCP servers available as agent tools in conversations. vizion-tpm is the local
+# defect-database stdio server (from the vizion-defects plugin). confluence-atc
+# is a remote streamable-http server exposing BMW Confluence search/read/write
+# tools; its personal access token is injected from .env via ${CONFLUENCE_TOKEN}.
+mcpServers:
+  octane-mcp:
+    title: Octane
+    type: streamable-http
+    url: https://mcp.taee-ai-prod.eu-west-1.aws.cloud.bmw/mcp
+    proxy: http://160.48.211.81:8080
+    startup: false
+    chatMenu: true
+    requiresOAuth: false
+    headers:
+      Authorization: 'Bearer {{OCTANE_PAT}}'
+    customUserVars:
+      OCTANE_PAT:
+        title: Octane PAT
+        description: Personal Access Token from https://mcp.taee-ai-prod.eu-west-1.aws.cloud.bmw/auth/login
+        sensitive: true
+  confluence-atc:
+    type: streamable-http
+    url: https://atc.bmwgroup.net/mcp
+    headers:
+      X-Atlassian-Confluence-Personal-Token: '${CONFLUENCE_TOKEN}'
+      X-Atlassian-Confluence-Url: https://atc.bmwgroup.net/confluence
+    title: Confluence
+    description: BMW Confluence — search, read, and manage wiki pages.
+    timeout: 60000
+
+# Tools pinned to the prompt bar by default, and MCP servers pre-selected on a
+# new conversation (only when the user has no stored preference yet). Listing
+# the server names both pins the MCP dropdown and selects the servers by
+# default.
+interface:
+  defaultPinnedTools:
+    - 'vizion-tpm'
+    - 'vizion-testcase'
+    - 'confluence-atc'
+
+# Speech-to-Text: local FunASR/SenseVoice provider for Chinese voice
+# recognition. Spawns a persistent Python worker process (local_asr.py) that
+# loads the SenseVoiceSmall multilingual model. The model auto-downloads from
+# ModelScope on first use (~900MB, cached at ~/.cache/modelscope/).
+# Prerequisites: pip install funasr torch, ffmpeg on PATH.
+speech:
+  stt:
+    local:
+      model: 'iic/SenseVoiceSmall'
+      device: 'cpu'
+      pythonPath: 'C:/Users/q446328/Desktop/vizion-lab/.venv/Scripts/python.exe'
+      timeoutMs: 300000

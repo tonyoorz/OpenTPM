@@ -36,6 +36,10 @@ client/src/localization/languages/*_missing_keys.json
 # Compiled Dirs (http://nodejs.org/api/addons.html)
 build/
 dist/
+!plugin/vizion-defects/dist/
+!plugin/vizion-defects/dist/**
+!plugin/vizion-testcase/dist/
+!plugin/vizion-testcase/dist/**
 public/main.js
 public/main.js.map
 public/main.js.LICENSE.txt
@@ -76,16 +80,13 @@ api/tsconfig.json
 .floo
 .flooignore
 
-#config file
-librechat.yaml
-librechat.yml
-
 # Environment
 .npmrc
 .env*
 my.secrets
 !**/.env.example
 !**/.env.test.example
+!.env.prod.example
 cache.json
 api/data/
 owner.yml
@@ -202,7 +203,6 @@ services/session-keeper/login_info.txt
 services/session-keeper/session_data/
 services/session-keeper/**/__pycache__/
 services/session-keeper/.pytest_cache/
-plugin/*/dist/
 plugin/*/node_modules/
 plugin/*/data/*.db
 plugin/*/data/*.db-shm
