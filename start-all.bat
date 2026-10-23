@@ -40,7 +40,7 @@ if errorlevel 1 (
             exit /b 1
         )
         echo [2/4] Starting BMW session keeper...
-        start "OpenTPM Session Keeper" /D "%ROOT_DIR%services\session-keeper" "%SESSION_KEEPER_PYTHON%" -m uvicorn session_keeper.app:app --host 127.0.0.1 --port 8090 --reload
+        start "OpenTPM Session Keeper" /D "%ROOT_DIR%services\session-keeper" "!SESSION_KEEPER_PYTHON!" -m uvicorn session_keeper.app:app --host 127.0.0.1 --port 8090 --reload
     )
 )
 

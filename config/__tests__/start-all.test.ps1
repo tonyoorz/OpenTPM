@@ -8,6 +8,7 @@ $package = Get-Content (Join-Path $repositoryRoot 'package.json') -Raw | Convert
 $expectations = @(
   @{ Description = 'uses a repository-relative root path'; Pattern = '%~dp0' }
   @{ Description = 'starts the repository session keeper'; Pattern = 'services\\session-keeper\\.venv\\Scripts\\python.exe' }
+  @{ Description = 'starts the session keeper with its delayed-expanded Python path'; Pattern = 'start "OpenTPM Session Keeper"[^\r\n]*"!SESSION_KEEPER_PYTHON!"' }
   @{ Description = 'starts the backend development server'; Pattern = 'npm\.cmd run backend:dev' }
   @{ Description = 'starts the frontend development server'; Pattern = 'npm\.cmd run frontend:dev' }
   @{ Description = 'does not reference the retired BmwLogin repository'; Pattern = 'BmwLogin'; Present = $false }
