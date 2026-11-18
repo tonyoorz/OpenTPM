@@ -421,7 +421,9 @@ describe('MCP Routes', () => {
 
       getLogStores.mockReturnValue({});
       require('~/config').getFlowStateManager.mockReturnValue(mockFlowManager);
-      mockRegistryInstance.getServerConfig.mockResolvedValue({});
+      mockRegistryInstance.getServerConfig.mockResolvedValue({
+        proxy: 'http://proxy.example.com:8080',
+      });
 
       MCPOAuthHandler.initiateOAuthFlow.mockResolvedValue({
         authorizationUrl: 'https://oauth.example.com/auth',
@@ -448,6 +450,7 @@ describe('MCP Routes', () => {
         undefined,
         null,
         undefined,
+        'http://proxy.example.com:8080',
       );
       expect(MCPOAuthHandler.deleteStateMapping).toHaveBeenCalledWith(
         'old-state-value',

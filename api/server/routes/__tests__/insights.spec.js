@@ -3,6 +3,9 @@ const request = require('supertest');
 
 const mockCreateInsightsAccessHandler = jest.fn(() => (_req, res) => res.json({ access: true }));
 const mockCreateInsightsHandler = jest.fn(() => (_req, res) => res.json({ summary: {} }));
+const mockCreateInsightsConversationMessagesHandler = jest.fn(
+  () => (_req, res) => res.json({ messages: [] }),
+);
 const mockGrantedCapabilities = new Set(['access:admin', 'read:insights']);
 const mockGetInsights = jest.fn();
 let mockUser = { id: 'admin-id', role: 'ADMIN' };
@@ -10,6 +13,8 @@ let mockUser = { id: 'admin-id', role: 'ADMIN' };
 jest.mock('@librechat/api', () => ({
   createInsightsAccessHandler: (...args) => mockCreateInsightsAccessHandler(...args),
   createInsightsHandler: (...args) => mockCreateInsightsHandler(...args),
+  createInsightsConversationMessagesHandler: (...args) =>
+    mockCreateInsightsConversationMessagesHandler(...args),
   isEnabled: (value) => value === 'true',
 }));
 
@@ -44,6 +49,7 @@ jest.mock('~/server/middleware/roles/capabilities', () => ({
 
 jest.mock('~/models', () => ({
   getInsights: (...args) => mockGetInsights(...args),
+  getMessages: jest.fn(),
 }));
 
 const insightsRouter = require('../insights');
@@ -90,4 +96,36 @@ describe('Insights routes', () => {
 
     expect(response.status).toBe(403);
   });
+
+  it('preserves conversation-detail access for authorized administrators', async () => {
+    const response = await request(createApp()).get(
+      '/api/admin/insights/conversations/conversation-test/messages',
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ messages: [] });
+  });
+
+  it('requires the ADMIN role for conversation details', async () => {
+    mockUser = { id: 'user-id', role: 'USER' };
+
+    const response = await request(createApp()).get(
+      '/api/admin/insights/conversations/conversation-test/messages',
+    );
+
+    expect(response.status).toBe(403);
+  });
+
+  it.each(['access:admin', 'read:insights'])(
+    'requires %s for conversation details',
+    async (capability) => {
+      mockGrantedCapabilities.delete(capability);
+
+      const response = await request(createApp()).get(
+        '/api/admin/insights/conversations/conversation-test/messages',
+      );
+
+      expect(response.status).toBe(403);
+    },
+  );
 });

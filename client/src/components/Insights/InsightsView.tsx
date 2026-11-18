@@ -1,12 +1,20 @@
 import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { AlertCircle, ChevronDown, ChevronRight, Info, Search } from 'lucide-react';
-import { Button, Input, Spinner, TooltipAnchor, useMediaQuery } from '@librechat/client';
+import { AlertCircle, Check, ChevronDown, ChevronRight, Info, Minus, Search } from 'lucide-react';
+import {
+  Button,
+  Input,
+  MultiSelect,
+  Spinner,
+  TooltipAnchor,
+  useMediaQuery,
+} from '@librechat/client';
 import {
   INSIGHTS_MAX_RANGE_DAYS,
   INSIGHTS_SEARCH_MAX_LENGTH,
   INSIGHTS_SEARCH_MIN_LENGTH,
+  INSIGHTS_UNASSIGNED_AGENT_ID,
   SystemRoles,
 } from 'librechat-data-provider';
 import type {
@@ -16,6 +24,7 @@ import type {
   TInsightsParams,
   TInsightsUser,
 } from 'librechat-data-provider';
+import type { InsightsConversationMessage } from '~/data-provider';
 import type { TranslationKeys } from '~/hooks';
 import {
   useGetStartupConfig,
@@ -23,7 +32,6 @@ import {
   useInsightsConversationMessagesQuery,
   useInsightsQuery,
 } from '~/data-provider';
-import type { InsightsConversationMessage } from '~/data-provider';
 import { useAuthContext, useDocumentTitle, useLocalize } from '~/hooks';
 import OpenSidebar from '~/components/Chat/Menus/OpenSidebar';
 import { LocalizedDateRangePicker } from '~/components/ui';
@@ -410,8 +418,9 @@ function extractMessageText(message: InsightsConversationMessage): string {
   }
   if (Array.isArray(message.content)) {
     const textParts = message.content
-      .filter((part): part is { type: 'text'; text: string } =>
-        typeof part === 'object' && part !== null && (part as { type?: string }).type === 'text',
+      .filter(
+        (part): part is { type: 'text'; text: string } =>
+          typeof part === 'object' && part !== null && (part as { type?: string }).type === 'text',
       )
       .map((part) => (part as { text?: string }).text ?? '')
       .filter((text) => text.trim());
@@ -500,14 +509,12 @@ function ConversationDetail({
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 text-xs text-text-secondary">
                 <span className="font-medium text-text-primary">
-                  {isUser
-                    ? localize('com_insights_user')
-                    : message.sender || message.model || 'AI'}
+                  {isUser ? localize('com_insights_user') : message.sender || message.model || 'AI'}
                 </span>
                 <span>{formatMessageTime(message.createdAt, locale)}</span>
                 {message.tokenCount != null && message.tokenCount > 0 && (
                   <span className="text-text-tertiary">
-                    {formatExactValue(message.tokenCount, locale)} tokens
+                    {formatExactValue(message.tokenCount, locale)} {localize('com_ui_tokens')}
                   </span>
                 )}
               </div>
@@ -699,6 +706,7 @@ export default function InsightsView() {
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
+  const [agentIds, setAgentIds] = useState<string[]>();
   const dateRangeSelectionTimeout = useRef<number>();
   const isSmallScreen = useMediaQuery('(max-width: 768px)');
   const insightsFeatureEnabled = startupConfig?.insightsEnabled === true;
@@ -708,7 +716,13 @@ export default function InsightsView() {
   });
   const isAllowed = insightsFeatureEnabled && access.data?.access === true;
   const insightsParams = useMemo<TInsightsParams>(() => {
-    const params: TInsightsParams = { page, pageSize: 10, search, timeZone };
+    const params: TInsightsParams = {
+      page,
+      pageSize: 10,
+      search,
+      timeZone,
+      ...(agentIds === undefined ? {} : { agentIds }),
+    };
     if (customDateRange) {
       return {
         ...params,
@@ -718,13 +732,40 @@ export default function InsightsView() {
       };
     }
     return { ...params, range };
-  }, [customDateRange, page, range, search, timeZone]);
+  }, [agentIds, customDateRange, page, range, search, timeZone]);
   const displayDateRange = useMemo(
     () => customDateRange ?? getShortcutDateRange(range),
     [customDateRange, range],
   );
   const insights = useInsightsQuery(insightsParams, { enabled: isAllowed });
   const data = insights.data;
+  const agentCatalog = useMemo(() => {
+    const items: Array<{ value: string; label: string }> = [];
+    const ids: string[] = [];
+    const labels = new Map<string, string>();
+    for (const agent of data?.agents ?? []) {
+      const label =
+        agent.id === INSIGHTS_UNASSIGNED_AGENT_ID
+          ? localize('com_insights_unassigned_agent')
+          : agent.name;
+      items.push({ value: agent.id, label });
+      ids.push(agent.id);
+      labels.set(agent.id, label);
+    }
+    return { items, ids, labels };
+  }, [data?.agents, localize]);
+  const displayedAgentIds = agentIds ?? agentCatalog.ids;
+  const selectedAgentIds = new Set(displayedAgentIds);
+  const allAgentsSelected =
+    agentCatalog.ids.length > 0 &&
+    displayedAgentIds.length === agentCatalog.ids.length &&
+    agentCatalog.ids.every((id) => selectedAgentIds.has(id));
+  const someAgentsSelected = displayedAgentIds.length > 0;
+
+  const handleAgentSelection = (values: string[] | undefined) => {
+    setAgentIds(values);
+    setPage(1);
+  };
 
   useDocumentTitle(`${localize('com_insights_title')} | Vizion`);
 
@@ -817,12 +858,71 @@ export default function InsightsView() {
 
   return (
     <div className="flex h-full w-full min-w-0 flex-col bg-presentation text-text-primary">
-      <header className="z-20 flex min-h-14 w-full flex-shrink-0 flex-col gap-3 border-b border-border-light bg-presentation px-4 py-3 sm:px-5 md:flex-row md:items-center md:justify-between md:px-6 lg:px-8">
+      <header className="z-20 flex min-h-14 w-full flex-shrink-0 flex-col gap-3 border-b border-border-light bg-presentation px-4 py-3 sm:px-5 md:px-6 lg:px-8 xl:flex-row xl:items-center xl:justify-between">
         <div className="flex min-w-0 items-center gap-3">
           {isSmallScreen && <OpenSidebar />}
           <h1 className="text-base font-semibold">{localize('com_insights_title')}</h1>
         </div>
-        <div className="flex max-w-full flex-wrap items-center gap-2 md:flex-nowrap">
+        <div className="flex max-w-full flex-wrap items-center gap-2 xl:flex-nowrap">
+          <MultiSelect
+            label={localize('com_ui_agents')}
+            labelClassName="sr-only"
+            placeholder={localize('com_ui_agents')}
+            items={agentCatalog.items}
+            selectedValues={displayedAgentIds}
+            setSelectedValues={handleAgentSelection}
+            disabled={insights.isLoading || agentCatalog.items.length === 0}
+            showSelectedValues
+            showItemCheckboxes
+            searchPlaceholder={
+              agentCatalog.items.length > 10 ? localize('com_insights_search_agents') : undefined
+            }
+            searchEmptyText={localize('com_insights_no_agents_found')}
+            className="w-full min-w-0 sm:w-64"
+            selectClassName="w-full"
+            renderSelectedValues={(values) => {
+              if (values.length === 0) {
+                return localize('com_insights_no_agents_selected');
+              }
+              if (agentIds === undefined) {
+                return localize('com_insights_all_agents_label');
+              }
+              if (values.length === 1) {
+                return agentCatalog.labels.get(values[0]) ?? values[0];
+              }
+              return localize('com_ui_selected_count', { count: values.length });
+            }}
+            popoverHeader={
+              <div className="border-b border-border-light">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  aria-label={
+                    someAgentsSelected
+                      ? localize('com_ui_clear_all')
+                      : localize('com_insights_select_all_agents')
+                  }
+                  className="h-10 w-full justify-start gap-2 rounded-none px-3"
+                  onClick={() => handleAgentSelection(someAgentsSelected ? [] : undefined)}
+                >
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      'flex size-4 shrink-0 items-center justify-center rounded-sm border border-border-xheavy',
+                      someAgentsSelected && 'bg-surface-inverted text-text-inverted',
+                    )}
+                  >
+                    {allAgentsSelected && <Check className="size-3.5" strokeWidth={2} />}
+                    {someAgentsSelected && !allAgentsSelected && (
+                      <Minus className="size-3.5" strokeWidth={2} />
+                    )}
+                  </span>
+                  <span>{localize('com_insights_all_agents_label')}</span>
+                </Button>
+              </div>
+            }
+          />
           <div className="inline-flex rounded-lg border border-border-light p-0.5">
             {ranges.map((item) => (
               <Button
@@ -870,7 +970,10 @@ export default function InsightsView() {
           </div>
         </div>
       </header>
-      <main className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+      <main
+        aria-busy={insights.isFetching}
+        className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden"
+      >
         <div className="flex w-full min-w-0 flex-col gap-5 px-4 py-4 sm:px-5 md:px-6 lg:px-8">
           {insights.isLoading && <LoadingState message={localize('com_insights_loading')} />}
           {insights.isError && (

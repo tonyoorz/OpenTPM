@@ -64,6 +64,12 @@ describe('areSearchMessagePropsEqual', () => {
     ).toBe(false);
   });
 
+  it('is false when the error flag changes the clipboard rendering mode', () => {
+    expect(areSearchMessagePropsEqual({ message: msg() }, { message: msg({ error: true }) })).toBe(
+      false,
+    );
+  });
+
   it('is false when only clientTimestamp changes (createdAt-less timestamp fallback)', () => {
     const a = msg({ createdAt: undefined, clientTimestamp: '2026-07-20T00:00:00.000Z' });
     const b = msg({ createdAt: undefined, clientTimestamp: '2026-07-20T01:00:00.000Z' });

@@ -2,6 +2,7 @@ import {
   INSIGHTS_MAX_RANGE_DAYS,
   INSIGHTS_SEARCH_MAX_LENGTH,
   INSIGHTS_SEARCH_MIN_LENGTH,
+  INSIGHTS_UNASSIGNED_AGENT_ID,
 } from 'librechat-data-provider';
 import type {
   TInsightsResponse,
@@ -10,9 +11,10 @@ import type {
   TInsightsUser,
   TInsightsChurnedUser,
   TInsightsConversation,
+  TInsightsAgent,
 } from 'librechat-data-provider';
-import type { Model } from 'mongoose';
-import type { IConversation, IMessage, IUser } from '~/types';
+import type { Model, FilterQuery, PipelineStage } from 'mongoose';
+import type { IAgent, IConversation, IMessage, IUser } from '~/types';
 
 export type InsightsOptions = TInsightsParams & {
   tenantId?: string;
@@ -252,11 +254,61 @@ const toUser = (
   };
 };
 
+function agentConversationMatch(
+  agentIds: string[] | undefined,
+  field = 'agent_id',
+): FilterQuery<IConversation> {
+  if (agentIds === undefined) {
+    return {};
+  }
+  const selectedIds = new Set(agentIds);
+  const includesUnassigned = selectedIds.delete(INSIGHTS_UNASSIGNED_AGENT_ID);
+  return {
+    [field]: { $in: includesUnassigned ? [...selectedIds, null, ''] : [...selectedIds] },
+  };
+}
+
+function agentMessageScope(
+  tenantId: string | undefined,
+  agentIds: string[] | undefined,
+): PipelineStage[] {
+  if (agentIds === undefined) {
+    return [];
+  }
+  if (agentIds.length === 0) {
+    return [{ $match: { _id: { $in: [] } } }];
+  }
+
+  return [
+    {
+      $lookup: {
+        from: 'conversations',
+        localField: 'conversationId',
+        foreignField: 'conversationId',
+        as: 'insightsAgentConversation',
+      },
+    },
+    { $unwind: '$insightsAgentConversation' },
+    {
+      $match: {
+        ...agentConversationMatch(agentIds, 'insightsAgentConversation.agent_id'),
+        'insightsAgentConversation.isTemporary': { $ne: true },
+        ...(tenantId
+          ? { 'insightsAgentConversation.tenantId': tenantId }
+          : { 'insightsAgentConversation.tenantId': { $exists: false } }),
+        $expr: { $eq: ['$insightsAgentConversation.user', '$user'] },
+      },
+    },
+    { $project: { insightsAgentConversation: 0 } },
+  ];
+}
+
 export function createInsightsMethods(mongoose: typeof import('mongoose')): InsightsMethods {
   async function getInsights(options: InsightsOptions = {}): Promise<InsightsResult> {
     const Conversation = mongoose.models.Conversation as Model<IConversation>;
     const Message = mongoose.models.Message as Model<IMessage>;
     const User = mongoose.models.User as Model<IUser>;
+    const Agent = mongoose.models.Agent as Model<IAgent>;
     const page = Math.max(1, Math.floor(options.page ?? 1));
     const pageSize = Math.min(50, Math.max(5, Math.floor(options.pageSize ?? 10)));
     const { from, to } = resolveRange(options);
@@ -270,6 +322,7 @@ export function createInsightsMethods(mongoose: typeof import('mongoose')): Insi
     };
     const conversationMatch = {
       ...tenantConversations,
+      ...agentConversationMatch(options.agentIds),
       user: { $nin: [null, ''] },
       createdAt: { $gte: from, $lte: to },
     };
@@ -280,7 +333,8 @@ export function createInsightsMethods(mongoose: typeof import('mongoose')): Insi
       createdAt: { $gte: from, $lte: to },
     };
     const conversationScope = [{ $match: conversationMatch }];
-    const messageScope = [{ $match: messageMatch }];
+    const agentScope = agentMessageScope(options.tenantId, options.agentIds);
+    const messageScope = [{ $match: messageMatch }, ...agentScope];
 
     const requestedSearch = options.search?.trim().slice(0, INSIGHTS_SEARCH_MAX_LENGTH) ?? '';
     const search = requestedSearch.length >= INSIGHTS_SEARCH_MIN_LENGTH ? requestedSearch : '';
@@ -467,6 +521,7 @@ export function createInsightsMethods(mongoose: typeof import('mongoose')): Insi
             createdAt: { $gte: churnedActivityFrom, $lte: to },
           },
         },
+        ...agentScope,
         {
           $group: {
             _id: '$user',
@@ -478,9 +533,15 @@ export function createInsightsMethods(mongoose: typeof import('mongoose')): Insi
         { $limit: churnedUserLimit },
       ]),
       searchedConversationAggregation,
+      Agent.find(tenant).select('id name -_id').sort({ name: 1, id: 1 }).lean<TInsightsAgent[]>(),
     ]);
-    const [conversationFacets, messageFacets, churnedUserRows, searchedConversationFacets] =
-      insightsAggregations;
+    const [
+      conversationFacets,
+      messageFacets,
+      churnedUserRows,
+      searchedConversationFacets,
+      agentRows,
+    ] = insightsAggregations;
 
     const conversationFacet = conversationFacets[0];
     const conversationListFacet = searchRegex ? searchedConversationFacets[0] : conversationFacet;
@@ -563,6 +624,7 @@ export function createInsightsMethods(mongoose: typeof import('mongoose')): Insi
                 isCreatedByUser: true,
               },
             },
+            ...agentScope,
             {
               $group: {
                 _id: { user: '$user', conversationId: '$conversationId' },
@@ -586,6 +648,7 @@ export function createInsightsMethods(mongoose: typeof import('mongoose')): Insi
                 createdAt: { $lte: to },
               },
             },
+            ...agentScope,
             {
               $group: {
                 _id: { user: '$user', conversationId: '$conversationId' },
@@ -648,6 +711,10 @@ export function createInsightsMethods(mongoose: typeof import('mongoose')): Insi
     );
 
     return {
+      agents: [
+        { id: INSIGHTS_UNASSIGNED_AGENT_ID, name: '' },
+        ...agentRows.map((agent) => ({ id: agent.id, name: agent.name || agent.id })),
+      ],
       summary: {
         totalUsers: messageFacet?.userCount[0]?.total ?? 0,
         totalConversations,

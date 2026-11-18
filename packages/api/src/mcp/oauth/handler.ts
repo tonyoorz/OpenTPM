@@ -71,8 +71,9 @@ export class MCPOAuthHandler {
     allowedDomains?: string[] | null,
     allowedAddresses?: string[] | null,
     signal?: AbortSignal,
+    proxy?: string,
   ): FetchLike {
-    const hardenedFetch = createHardenedOAuthFetch({ allowedDomains, allowedAddresses });
+    const hardenedFetch = createHardenedOAuthFetch({ allowedDomains, allowedAddresses, proxy });
 
     return async (url: string | URL, init?: RequestInit): Promise<Response> => {
       const newHeaders = new Headers(init?.headers ?? {});
@@ -161,6 +162,7 @@ export class MCPOAuthHandler {
     allowedDomains?: string[] | null,
     allowedAddresses?: string[] | null,
     signal?: AbortSignal,
+    proxy?: string,
   ): Promise<OAuthDiscoveryResult> {
     logger.debug(
       `[MCPOAuth] discoverMetadata called with serverUrl: ${sanitizeUrlForLogging(serverUrl)}`,
@@ -172,6 +174,7 @@ export class MCPOAuthHandler {
       allowedDomains,
       allowedAddresses,
       signal,
+      proxy,
     );
 
     const resourceDiscovery = await this.discoverResourceMetadata(
@@ -371,6 +374,7 @@ export class MCPOAuthHandler {
     discoverCapabilities: boolean,
     allowedDomains?: string[] | null,
     allowedAddresses?: string[] | null,
+    proxy?: string,
   ): Promise<PreconfiguredOAuthDiscoveryResult> {
     const controller = new AbortController();
     let partialResult: PreconfiguredOAuthDiscoveryResult = {};
@@ -390,6 +394,7 @@ export class MCPOAuthHandler {
         allowedDomains,
         allowedAddresses,
         controller.signal,
+        proxy,
       );
 
       void this.discoverResourceMetadata(serverUrl, fetchFn, allowedDomains, allowedAddresses)
@@ -619,6 +624,7 @@ export class MCPOAuthHandler {
     tokenExchangeMethod?: TokenExchangeMethodEnum,
     allowedDomains?: string[] | null,
     allowedAddresses?: string[] | null,
+    proxy?: string,
   ): Promise<OAuthClientInformation> {
     logger.debug(
       `[MCPOAuth] Starting client registration for ${sanitizeUrlForLogging(serverUrl)}, server metadata:`,
@@ -680,7 +686,14 @@ export class MCPOAuthHandler {
     const clientInfo = await registerClient(serverUrl, {
       metadata: metadata as unknown as SDKOAuthMetadata,
       clientMetadata,
-      fetchFn: this.createOAuthFetch(oauthHeaders, undefined, allowedDomains, allowedAddresses),
+      fetchFn: this.createOAuthFetch(
+        oauthHeaders,
+        undefined,
+        allowedDomains,
+        allowedAddresses,
+        undefined,
+        proxy,
+      ),
     });
 
     const forcedAuthMethod = getForcedTokenEndpointAuthMethod(tokenExchangeMethod);
@@ -716,6 +729,7 @@ export class MCPOAuthHandler {
     findToken?: TokenMethods['findToken'],
     allowedAddresses?: string[] | null,
     tenantId?: string,
+    proxy?: string,
   ): Promise<{ authorizationUrl: string; flowId: string; flowMetadata: MCPOAuthFlowMetadata }> {
     logger.debug(
       `[MCPOAuth] initiateOAuthFlow called for ${serverName} with URL: ${sanitizeUrlForLogging(serverUrl)}`,
@@ -756,6 +770,7 @@ export class MCPOAuthHandler {
             shouldDiscoverCapabilities,
             allowedDomains,
             allowedAddresses,
+            proxy,
           );
           resourceMetadata = discovery.resourceMetadata;
 
@@ -911,6 +926,7 @@ export class MCPOAuthHandler {
           resourceMetadata,
           ...(allowedDomains !== undefined && { allowedDomains }),
           ...(allowedAddresses !== undefined && { allowedAddresses }),
+          ...(proxy !== undefined && { proxy }),
           ...(Object.keys(oauthHeaders).length > 0 && { oauthHeaders }),
           ...(tenantId && { tenantId }),
         };
@@ -933,6 +949,8 @@ export class MCPOAuthHandler {
         oauthHeaders,
         allowedDomains,
         allowedAddresses,
+        undefined,
+        proxy,
       );
 
       logger.debug(
@@ -1029,6 +1047,7 @@ export class MCPOAuthHandler {
           config?.token_exchange_method,
           allowedDomains,
           allowedAddresses,
+          proxy,
         );
         logger.debug(`[MCPOAuth] Client registered with ID: ${clientInfo.client_id}`);
       }
@@ -1117,6 +1136,7 @@ export class MCPOAuthHandler {
         resourceMetadata,
         ...(allowedDomains !== undefined && { allowedDomains }),
         ...(allowedAddresses !== undefined && { allowedAddresses }),
+        ...(proxy !== undefined && { proxy }),
         ...(Object.keys(oauthHeaders).length > 0 && { oauthHeaders }),
         ...(reusedStoredClient && { reusedStoredClient }),
         ...(reusedClientCredentialSetId && { reusedClientCredentialSetId }),
@@ -1135,7 +1155,7 @@ export class MCPOAuthHandler {
 
       logger.debug(
         `[MCPOAuth] Returning from initiateOAuthFlow with result ${flowId} for ${serverName}`,
-        result,
+        { flowId, serverName, hasProxy: !!proxy },
       );
       return result;
     } catch (error) {
@@ -1203,6 +1223,8 @@ export class MCPOAuthHandler {
           metadata.clientInfo,
           metadata.allowedDomains,
           metadata.allowedAddresses,
+          undefined,
+          metadata.proxy,
         ),
       });
 
@@ -1607,6 +1629,7 @@ export class MCPOAuthHandler {
     allowedDomains?: string[] | null,
     allowedAddresses?: string[] | null,
     signal?: AbortSignal,
+    proxy?: string,
   ): Promise<MCPOAuthTokens> {
     logger.debug(`[MCPOAuth] Refreshing tokens for ${metadata.serverName}`);
 
@@ -1715,6 +1738,7 @@ export class MCPOAuthHandler {
             allowedDomains,
             allowedAddresses,
             signal,
+            proxy,
           );
           const oauthMetadata = await this.discoverWithOriginFallback(serverUrl, fetchFn);
 
@@ -1814,7 +1838,7 @@ export class MCPOAuthHandler {
           has_auth_header: !!headers['Authorization'],
         });
 
-        const oauthFetch = createHardenedOAuthFetch({ allowedDomains, allowedAddresses });
+        const oauthFetch = createHardenedOAuthFetch({ allowedDomains, allowedAddresses, proxy });
         const response = await this.postRefreshRequest(
           oauthFetch,
           tokenUrl,
@@ -1902,7 +1926,7 @@ export class MCPOAuthHandler {
           body.append('client_id', config.client_id);
         }
 
-        const oauthFetch = createHardenedOAuthFetch({ allowedDomains, allowedAddresses });
+        const oauthFetch = createHardenedOAuthFetch({ allowedDomains, allowedAddresses, proxy });
         const response = await this.postRefreshRequest(
           oauthFetch,
           tokenUrl,
@@ -1936,6 +1960,7 @@ export class MCPOAuthHandler {
         allowedDomains,
         allowedAddresses,
         signal,
+        proxy,
       );
       const oauthMetadata = await this.discoverWithOriginFallback(serverUrl, fetchFn);
 
@@ -1967,7 +1992,7 @@ export class MCPOAuthHandler {
         ...oauthHeaders,
       };
 
-      const oauthFetch = createHardenedOAuthFetch({ allowedDomains, allowedAddresses });
+      const oauthFetch = createHardenedOAuthFetch({ allowedDomains, allowedAddresses, proxy });
       const response = await oauthFetch(tokenUrl, {
         method: 'POST',
         headers,
@@ -2007,6 +2032,7 @@ export class MCPOAuthHandler {
     oauthHeaders: Record<string, string> = {},
     allowedDomains?: string[] | null,
     allowedAddresses?: string[] | null,
+    proxy?: string,
   ): Promise<void> {
     const revokeUrl: URL =
       metadata.revocationEndpoint != null
@@ -2044,7 +2070,7 @@ export class MCPOAuthHandler {
     logger.info(
       `[MCPOAuth] Revoking tokens for ${serverName} via ${sanitizeUrlForLogging(revokeUrl.toString())}`,
     );
-    const oauthFetch = createHardenedOAuthFetch({ allowedDomains, allowedAddresses });
+    const oauthFetch = createHardenedOAuthFetch({ allowedDomains, allowedAddresses, proxy });
     const response = await oauthFetch(revokeUrl, {
       method: 'POST',
       body: body.toString(),

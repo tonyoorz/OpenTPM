@@ -3,6 +3,7 @@ import { MongoMemoryServer } from 'mongodb-memory-server';
 import { createConversationModel } from '../models/convo';
 import { createMessageModel } from '../models/message';
 import { createInsightsMethods } from './insights';
+import { createAgentModel } from '../models/agent';
 import { createUserModel } from '../models/user';
 
 let mongoServer: MongoMemoryServer;
@@ -14,6 +15,7 @@ beforeAll(async () => {
     createConversationModel(mongoose),
     createMessageModel(mongoose),
     createUserModel(mongoose),
+    createAgentModel(mongoose),
   ];
   await Promise.all(models.map((model) => model.init()));
 });
@@ -28,10 +30,283 @@ beforeEach(async () => {
     mongoose.models.Conversation.deleteMany({}),
     mongoose.models.Message.deleteMany({}),
     mongoose.models.User.deleteMany({}),
+    mongoose.models.Agent.deleteMany({}),
   ]);
 });
 
 describe('Insights methods', () => {
+  describe('agent filtering', () => {
+    const firstUserId = new mongoose.Types.ObjectId();
+    const secondUserId = new mongoose.Types.ObjectId();
+
+    beforeEach(async () => {
+      const createdAt = new Date(Date.now() - 60 * 60 * 1000);
+      await mongoose.models.Agent.collection.insertMany([
+        { id: 'agent-a', tenantId: 'tenant-a', name: 'First Agent' },
+        { id: 'agent-b', tenantId: 'tenant-a', name: 'Second Agent' },
+        { id: 'agent-private', tenantId: 'tenant-b', name: 'Private Agent' },
+      ]);
+      await mongoose.models.User.collection.insertMany([
+        { _id: firstUserId, tenantId: 'tenant-a', name: 'First User', email: 'first@example.com' },
+        {
+          _id: secondUserId,
+          tenantId: 'tenant-a',
+          name: 'Second User',
+          email: 'second@example.com',
+        },
+      ]);
+      const conversations = [
+        {
+          conversationId: 'shared-conversation',
+          tenantId: 'tenant-a',
+          user: firstUserId.toString(),
+          agent_id: 'agent-a',
+        },
+        {
+          conversationId: 'shared-conversation',
+          tenantId: 'tenant-a',
+          user: secondUserId.toString(),
+          agent_id: 'agent-b',
+        },
+        {
+          conversationId: 'direct-conversation',
+          tenantId: 'tenant-a',
+          user: firstUserId.toString(),
+        },
+        {
+          conversationId: 'shared-conversation',
+          tenantId: 'tenant-b',
+          user: firstUserId.toString(),
+          agent_id: 'agent-a',
+        },
+      ];
+      await mongoose.models.Conversation.collection.insertMany(
+        conversations.map((conversation) => ({
+          ...conversation,
+          createdAt,
+          updatedAt: createdAt,
+          isTemporary: false,
+        })),
+      );
+      await mongoose.models.Message.collection.insertMany(
+        conversations.map((conversation, index) => ({
+          conversationId: conversation.conversationId,
+          tenantId: conversation.tenantId,
+          user: conversation.user,
+          messageId: `agent-filter-message-${index}`,
+          text: `Message ${index}`,
+          createdAt,
+          updatedAt: createdAt,
+          isCreatedByUser: true,
+          isTemporary: false,
+          tokenCount: (index + 1) * 10,
+        })),
+      );
+    });
+
+    it('preserves all existing statistics when no agent filter is supplied', async () => {
+      const result = await createInsightsMethods(mongoose).getInsights({
+        tenantId: 'tenant-a',
+        range: '7d',
+      });
+
+      expect(result.summary).toEqual({
+        totalUsers: 2,
+        totalConversations: 3,
+        totalMessages: 3,
+        totalTokens: 60,
+      });
+    });
+
+    it('filters every statistic by agent while preserving tenant and conversation-owner isolation', async () => {
+      const options = {
+        tenantId: 'tenant-a',
+        range: '7d' as const,
+        agentIds: ['agent-a'],
+      };
+      const result = await createInsightsMethods(mongoose).getInsights(options);
+
+      expect(result.summary).toEqual({
+        totalUsers: 1,
+        totalConversations: 1,
+        totalMessages: 1,
+        totalTokens: 10,
+      });
+      expect(result.topUsers).toEqual([
+        expect.objectContaining({
+          userId: firstUserId.toString(),
+          conversations: 1,
+          messages: 1,
+        }),
+      ]);
+      expect(result.latest.conversations).toEqual([
+        expect.objectContaining({
+          conversationId: 'shared-conversation',
+          userId: firstUserId.toString(),
+          messages: 1,
+          totalTokens: 10,
+        }),
+      ]);
+      expect(result.daily.reduce((total, point) => total + point.messages, 0)).toBe(1);
+      expect(result.daily.reduce((total, point) => total + point.totalTokens, 0)).toBe(10);
+    });
+
+    it('returns no statistics for an explicitly empty agent selection', async () => {
+      const options = { tenantId: 'tenant-a', range: '7d' as const, agentIds: [] as string[] };
+      const result = await createInsightsMethods(mongoose).getInsights(options);
+
+      expect(result.summary).toEqual({
+        totalUsers: 0,
+        totalConversations: 0,
+        totalMessages: 0,
+        totalTokens: 0,
+      });
+      expect(result.topUsers).toEqual([]);
+      expect(result.latest.conversations).toEqual([]);
+    });
+
+    it('keeps the tenant agent catalog available even when no agents are selected', async () => {
+      const options = { tenantId: 'tenant-a', range: '7d' as const, agentIds: [] as string[] };
+      const result = await createInsightsMethods(mongoose).getInsights(options);
+
+      expect(result).toHaveProperty('agents', [
+        { id: '__unassigned__', name: '' },
+        { id: 'agent-a', name: 'First Agent' },
+        { id: 'agent-b', name: 'Second Agent' },
+      ]);
+    });
+
+    it('can select only conversations without an agent', async () => {
+      const options = {
+        tenantId: 'tenant-a',
+        range: '7d' as const,
+        agentIds: ['__unassigned__'],
+      };
+      const result = await createInsightsMethods(mongoose).getInsights(options);
+
+      expect(result.summary).toEqual({
+        totalUsers: 1,
+        totalConversations: 1,
+        totalMessages: 1,
+        totalTokens: 30,
+      });
+      expect(result.latest.conversations[0].conversationId).toBe('direct-conversation');
+    });
+
+    it.each([null, ''])(
+      'includes an explicit %j agent value in the unassigned group',
+      async (agentId) => {
+        await mongoose.models.Conversation.collection.updateOne(
+          { tenantId: 'tenant-a', conversationId: 'direct-conversation' },
+          { $set: { agent_id: agentId } },
+        );
+        const options = {
+          tenantId: 'tenant-a',
+          range: '7d' as const,
+          agentIds: ['__unassigned__'],
+        };
+        const result = await createInsightsMethods(mongoose).getInsights(options);
+
+        expect(result.summary.totalConversations).toBe(1);
+        expect(result.summary.totalMessages).toBe(1);
+        expect(result.summary.totalTokens).toBe(30);
+      },
+    );
+
+    it('combines selected agents and conversations without an agent', async () => {
+      const options = {
+        tenantId: 'tenant-a',
+        range: '7d' as const,
+        agentIds: ['agent-a', '__unassigned__'],
+      };
+      const result = await createInsightsMethods(mongoose).getInsights(options);
+
+      expect(result.summary).toEqual({
+        totalUsers: 1,
+        totalConversations: 2,
+        totalMessages: 2,
+        totalTokens: 40,
+      });
+    });
+
+    it('counts current activity in selected-agent conversations created before the range', async () => {
+      await mongoose.models.Conversation.collection.updateOne(
+        { tenantId: 'tenant-a', user: firstUserId.toString(), agent_id: 'agent-a' },
+        { $set: { createdAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000) } },
+      );
+      const options = {
+        tenantId: 'tenant-a',
+        range: '7d' as const,
+        agentIds: ['agent-a'],
+      };
+      const result = await createInsightsMethods(mongoose).getInsights(options);
+
+      expect(result.summary).toEqual({
+        totalUsers: 1,
+        totalConversations: 0,
+        totalMessages: 1,
+        totalTokens: 10,
+      });
+      expect(result.topUsers[0].conversations).toBe(1);
+    });
+
+    it('keeps churned-user activity and lifetime totals scoped to the selected agent', async () => {
+      const daysAgo = (days: number) => new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+      const firstSeen = daysAgo(60);
+      const lastSeen = daysAgo(29);
+      await mongoose.models.Conversation.collection.updateOne(
+        { tenantId: 'tenant-a', user: firstUserId.toString(), agent_id: 'agent-a' },
+        { $set: { createdAt: firstSeen } },
+      );
+      await mongoose.models.Message.collection.updateOne(
+        { messageId: 'agent-filter-message-0' },
+        { $set: { createdAt: lastSeen } },
+      );
+      await mongoose.models.Conversation.collection.insertOne({
+        conversationId: 'active-other-agent',
+        tenantId: 'tenant-a',
+        user: firstUserId.toString(),
+        agent_id: 'agent-b',
+        createdAt: daysAgo(1),
+        isTemporary: false,
+      });
+      await mongoose.models.Message.collection.insertMany([
+        {
+          messageId: 'first-agent-history',
+          conversationId: 'shared-conversation',
+          tenantId: 'tenant-a',
+          user: firstUserId.toString(),
+          createdAt: firstSeen,
+          isCreatedByUser: true,
+          isTemporary: false,
+        },
+        {
+          messageId: 'other-agent-activity',
+          conversationId: 'active-other-agent',
+          tenantId: 'tenant-a',
+          user: firstUserId.toString(),
+          createdAt: daysAgo(1),
+          isCreatedByUser: true,
+          isTemporary: false,
+        },
+      ]);
+      const options = { tenantId: 'tenant-a', range: '7d' as const, agentIds: ['agent-a'] };
+      const result = await createInsightsMethods(mongoose).getInsights(options);
+
+      expect(result.churnedUsers).toEqual([
+        expect.objectContaining({
+          userId: firstUserId.toString(),
+          conversations: 1,
+          messages: 2,
+          firstSeen: firstSeen.toISOString(),
+          lastSeen: lastSeen.toISOString(),
+        }),
+      ]);
+      const empty = await createInsightsMethods(mongoose).getInsights({ ...options, agentIds: [] });
+      expect(empty.churnedUsers).toEqual([]);
+    });
+  });
+
   it('counts active users from prompts and all messages for top users within the tenant', async () => {
     const now = new Date();
     const activeAt = new Date(now.getTime() - 24 * 60 * 60 * 1000);

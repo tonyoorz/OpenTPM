@@ -709,6 +709,7 @@ const maybeUninstallOAuthMCP = async (userId, pluginKey, appConfig) => {
         oauthHeaders,
         allowedDomains,
         allowedAddresses,
+        serverConfig.proxy,
       );
     } catch (error) {
       logger.error(
@@ -734,6 +735,7 @@ const maybeUninstallOAuthMCP = async (userId, pluginKey, appConfig) => {
         oauthHeaders,
         allowedDomains,
         allowedAddresses,
+        serverConfig.proxy,
       );
     } catch (error) {
       logger.error(

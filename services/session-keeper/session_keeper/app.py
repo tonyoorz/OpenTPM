@@ -23,7 +23,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from session_keeper.keepalive import keepalive_loop, KEEPALIVE_INTERVAL
-from session_keeper.store import SessionStore
+from session_keeper.store import SessionStore, create_session
 from session_keeper.tools import get_tool, list_tools, load_extra_tools
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -196,10 +196,7 @@ def _do_login(
 ) -> requests.Session:
     from bmw_sso import bmw_sso_session
 
-    # Internal BMW tools must be reached directly, never via an HTTP proxy.
-    # Docker Desktop may inject proxy env vars that break connectivity.
-    session = requests.Session()
-    session.trust_env = False
+    session = create_session()
 
     return bmw_sso_session(
         app_url,

@@ -18,6 +18,9 @@ import { AgentUpdate } from './Parts';
 import store from '~/store';
 import Part from './Part';
 
+export const rendersMarkdownLite = (message: Pick<TMessage, 'content'>): boolean =>
+  !Array.isArray(message.content) || message.content.length === 0;
+
 const SearchContent = ({
   message,
   attachments,

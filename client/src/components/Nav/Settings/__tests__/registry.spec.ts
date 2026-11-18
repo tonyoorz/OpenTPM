@@ -51,6 +51,14 @@ describe('settings registry', () => {
     }
   });
 
+  it('offers rich text copying in chat message settings', () => {
+    expect(registry.find((entry) => entry.id === 'copyRichText')).toMatchObject({
+      tab: SettingsTabValues.CHAT,
+      section: 'messages',
+      labelKey: 'com_nav_copy_rich_text',
+    });
+  });
+
   describe('Langfuse connection visibility', () => {
     const langfuseEntry = registry.find((entry) => entry.id === 'langfuseConnection');
 

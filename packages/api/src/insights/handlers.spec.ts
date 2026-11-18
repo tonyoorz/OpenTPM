@@ -125,6 +125,59 @@ describe('Insights handlers', () => {
     );
   });
 
+  it('passes normalized agent IDs without accepting a forged tenant', async () => {
+    const getInsights = jest.fn().mockResolvedValue(emptyInsights);
+    const handler = createInsightsHandler({ isInsightsEnabled: insightsEnabled, getInsights });
+    const { response } = createResponse();
+
+    await handler(
+      createRequest({ agentIds: ' agent-a,agent-b,agent-a ', tenantId: 'forged-tenant' }),
+      response,
+    );
+
+    expect(getInsights).toHaveBeenCalledWith(
+      expect.objectContaining({ agentIds: ['agent-a', 'agent-b'], tenantId: 'tenant-a' }),
+    );
+  });
+
+  it('preserves an explicitly empty agent selection', async () => {
+    const getInsights = jest.fn().mockResolvedValue(emptyInsights);
+    const handler = createInsightsHandler({ isInsightsEnabled: insightsEnabled, getInsights });
+    const { response } = createResponse();
+
+    await handler(createRequest({ agentIds: '' }), response);
+
+    expect(getInsights).toHaveBeenCalledWith(expect.objectContaining({ agentIds: [] }));
+  });
+
+  it('accepts a bounded selection containing more than 256 agent IDs', async () => {
+    const getInsights = jest.fn().mockResolvedValue(emptyInsights);
+    const handler = createInsightsHandler({ isInsightsEnabled: insightsEnabled, getInsights });
+    const { response } = createResponse();
+    const agentIds = Array.from({ length: 257 }, (_, index) => `agent-${index}`);
+
+    await handler(createRequest({ agentIds: agentIds.join(',') }), response);
+
+    expect(getInsights).toHaveBeenCalledWith(expect.objectContaining({ agentIds }));
+  });
+
+  it.each<{ name: string; query: ServerRequest['query'] }>([
+    { name: 'repeated query parameters', query: { agentIds: ['agent-a', 'agent-b'] } },
+    { name: 'an object value', query: { agentIds: { $ne: '' } } },
+    { name: 'an empty list item', query: { agentIds: 'agent-a,,agent-b' } },
+    { name: 'an oversized ID', query: { agentIds: 'a'.repeat(129) } },
+    { name: 'an oversized query', query: { agentIds: 'a'.repeat(16_385) } },
+  ])('rejects $name', async ({ query }) => {
+    const getInsights = jest.fn().mockResolvedValue(emptyInsights);
+    const handler = createInsightsHandler({ isInsightsEnabled: insightsEnabled, getInsights });
+    const { response, status } = createResponse();
+
+    await handler(createRequest(query), response);
+
+    expect(status).toHaveBeenCalledWith(400);
+    expect(getInsights).not.toHaveBeenCalled();
+  });
+
   it('uses pagination defaults and discards an invalid timezone', async () => {
     const getInsights = jest.fn().mockResolvedValue(emptyInsights);
     const handler = createInsightsHandler({ isInsightsEnabled: insightsEnabled, getInsights });

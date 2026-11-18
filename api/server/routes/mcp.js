@@ -184,8 +184,9 @@ router.get('/:serverName/oauth/initiate', requireJwtAuth, setOAuthSession, async
     }
 
     const configServers = await resolveConfigServers(req);
-    const oauthHeaders = await getOAuthHeaders(serverName, userId, configServers);
     const registry = getMCPServersRegistry();
+    const serverConfig = await registry.getServerConfig(serverName, userId, configServers);
+    const oauthHeaders = serverConfig?.oauth_headers ?? {};
     const { allowedDomains, allowedAddresses } = await registry.resolveAllowlists({
       userId,
       role: req.user?.role,
@@ -204,6 +205,7 @@ router.get('/:serverName/oauth/initiate', requireJwtAuth, setOAuthSession, async
       undefined,
       allowedAddresses,
       getTenantId(),
+      serverConfig?.proxy,
     );
 
     logger.debug('[MCP OAuth] OAuth flow initiated', { oauthFlowId, authorizationUrl });

@@ -97,6 +97,7 @@ const localStorageAtoms = {
   saveBadgesState: atomWithLocalStorage('saveBadgesState', false),
   /** User preference for downscaling images before upload; ignored when the admin config sets it */
   clientImageResize: atomWithLocalStorage('clientImageResize', false),
+  copyRichText: atomWithLocalStorage('copyRichText', false),
 
   // Beta features settings
   modularChat: atomWithLocalStorage('modularChat', true),

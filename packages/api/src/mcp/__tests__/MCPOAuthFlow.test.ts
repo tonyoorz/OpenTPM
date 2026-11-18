@@ -7,10 +7,18 @@
 
 import { Keyv } from 'keyv';
 import { createHash } from 'crypto';
+import { ProxyAgent } from 'undici';
+import { logger } from '@librechat/data-schemas';
 import { TokenExchangeMethodEnum } from 'librechat-data-provider';
 import type { OAuthTestServer } from './helpers/oauthTestServer';
 import type { MCPOAuthTokens } from '~/mcp/oauth';
-import { createOAuthMCPServer, MockKeyv, InMemoryTokenStore } from './helpers/oauthTestServer';
+import {
+  createOAuthMCPServer,
+  createOAuthProxy,
+  MockKeyv,
+  InMemoryTokenStore,
+} from './helpers/oauthTestServer';
+import { resetHardenedOAuthFetchDispatchers } from '~/mcp/oauth/hardenedFetch';
 import { MCPTokenStorage, MCPOAuthHandler } from '~/mcp/oauth';
 import { FlowStateManager } from '~/flow/manager';
 
@@ -38,6 +46,123 @@ jest.mock('~/auth', () => ({
 describe('MCP OAuth Flow — Real HTTP Server', () => {
   afterEach(() => {
     jest.clearAllMocks();
+  });
+
+  it('uses the server proxy throughout the OAuth lifecycle', async () => {
+    const server = await createOAuthMCPServer({ issueRefreshTokens: true });
+    const proxy = await createOAuthProxy(server.url);
+    proxy.url = proxy.url.replace('http://', 'http://proxy-user:fixture-proxy-password@');
+    const fetchSpy = jest.spyOn(global, 'fetch');
+    const flowManager = new FlowStateManager<MCPOAuthTokens>(new Keyv(), {
+      ttl: 30000,
+      ci: true,
+    });
+    const allowedDomains = [new URL(server.url).host];
+
+    try {
+      const { authorizationUrl, flowId, flowMetadata } = await MCPOAuthHandler.initiateOAuthFlow(
+        'proxy-server',
+        server.url,
+        'proxy-user',
+        {},
+        undefined,
+        allowedDomains,
+        undefined,
+        undefined,
+        undefined,
+        proxy.url,
+      );
+      expect(flowMetadata).toHaveProperty('proxy', proxy.url);
+      expect(JSON.stringify(jest.mocked(logger.debug).mock.calls)).not.toContain(
+        'fixture-proxy-password',
+      );
+      await flowManager.initFlow(flowId, 'mcp_oauth', flowMetadata);
+
+      const authorization = await fetch(authorizationUrl, { redirect: 'manual' });
+      expect(authorization.status).toBe(302);
+      const location = authorization.headers.get('location');
+      if (!location) {
+        throw new Error('The OAuth fixture did not return an authorization redirect');
+      }
+      const code = new URL(location).searchParams.get('code');
+      if (!code) {
+        throw new Error('The OAuth fixture did not return an authorization code');
+      }
+      const tokens = await MCPOAuthHandler.completeOAuthFlow(flowId, code, flowManager, {});
+      const clientInfo = flowMetadata.clientInfo;
+      if (!tokens.refresh_token || !clientInfo?.client_secret) {
+        throw new Error('The OAuth fixture did not return its client and refresh credentials');
+      }
+      expect(server.issuedTokens.has(tokens.access_token)).toBe(true);
+
+      const refreshCases: {
+        metadata: Parameters<typeof MCPOAuthHandler.refreshOAuthTokens>[1];
+        config?: Parameters<typeof MCPOAuthHandler.refreshOAuthTokens>[3];
+      }[] = [
+        {
+          metadata: {
+            serverName: 'proxy-server',
+            serverUrl: server.url,
+            clientInfo,
+            storedTokenEndpoint: `${server.url}token`,
+            storedAuthMethods: ['client_secret_basic'],
+          },
+        },
+        {
+          metadata: { serverName: 'proxy-server' },
+          config: {
+            client_id: clientInfo.client_id,
+            client_secret: clientInfo.client_secret,
+            token_url: `${server.url}token`,
+          },
+        },
+        { metadata: { serverName: 'proxy-server', serverUrl: server.url } },
+      ];
+      for (const refreshCase of refreshCases) {
+        const refreshed = await MCPOAuthHandler.refreshOAuthTokens(
+          tokens.refresh_token,
+          refreshCase.metadata,
+          {},
+          refreshCase.config,
+          allowedDomains,
+          undefined,
+          undefined,
+          proxy.url,
+        );
+        expect(server.issuedTokens.has(refreshed.access_token)).toBe(true);
+      }
+
+      await MCPOAuthHandler.revokeOAuthToken(
+        'proxy-server',
+        tokens.refresh_token,
+        'refresh',
+        {
+          serverUrl: server.url,
+          clientId: clientInfo.client_id,
+          clientSecret: clientInfo.client_secret,
+        },
+        {},
+        allowedDomains,
+        undefined,
+        proxy.url,
+      );
+      expect(server.issuedRefreshTokens.has(tokens.refresh_token)).toBe(false);
+
+      const backendRequests = fetchSpy.mock.calls.filter(([input]) => {
+        const url = input instanceof Request ? input.url : input.toString();
+        return new URL(url).pathname !== '/authorize';
+      });
+      expect(backendRequests.length).toBeGreaterThan(5);
+      for (const [, init] of backendRequests) {
+        expect(init).toEqual(expect.objectContaining({ dispatcher: expect.any(ProxyAgent) }));
+      }
+      expect(proxy.requestCount()).toBeGreaterThan(0);
+    } finally {
+      fetchSpy.mockRestore();
+      resetHardenedOAuthFetchDispatchers();
+      await proxy.close();
+      await server.close();
+    }
   });
 
   describe('Token refresh with real server', () => {

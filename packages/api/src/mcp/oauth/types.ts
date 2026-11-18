@@ -111,6 +111,7 @@ export interface MCPOAuthFlowMetadata extends FlowMetadata {
   allowedDomains?: string[] | null;
   /** Address exemptions captured at flow initiation for callback-time SSRF enforcement. */
   allowedAddresses?: string[] | null;
+  proxy?: string;
   /** True when the flow reused a stored client registration from a prior successful OAuth flow */
   reusedStoredClient?: boolean;
   /** Credential generation of the reused client, used to scope stale-registration cleanup. */

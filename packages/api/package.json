@@ -23,6 +23,12 @@
         "types": "./dist/credentials.d.cts",
         "default": "./dist/credentials.cjs"
       }
+    },
+    "./fleem": {
+      "require": {
+        "types": "./dist/fleem.d.cts",
+        "default": "./dist/fleem.cjs"
+      }
     }
   },
   "scripts": {

@@ -464,6 +464,7 @@ describe('updateUserPluginsController MCP OAuth cleanup', () => {
       {},
       [],
       null,
+      undefined,
     );
     expect(MCPOAuthHandler.revokeOAuthToken).toHaveBeenCalledWith(
       'test-server',
@@ -479,6 +480,7 @@ describe('updateUserPluginsController MCP OAuth cleanup', () => {
       {},
       [],
       null,
+      undefined,
     );
     expect(MCPTokenStorage.deleteUserTokens).toHaveBeenCalledWith({
       userId: 'user-1',
@@ -512,6 +514,7 @@ describe('updateUserPluginsController MCP OAuth cleanup', () => {
       {},
       [],
       null,
+      undefined,
     );
     expect(MCPTokenStorage.deleteUserTokens).toHaveBeenCalledWith({
       userId: 'user-1',
@@ -545,6 +548,7 @@ describe('updateUserPluginsController MCP OAuth cleanup', () => {
       {},
       [],
       null,
+      undefined,
     );
     expect(MCPTokenStorage.deleteUserTokens).toHaveBeenCalledWith({
       userId: 'user-1',

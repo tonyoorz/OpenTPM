@@ -6,10 +6,10 @@ import AuthorHeader from '~/components/Chat/Messages/Content/Parts/AuthorHeader'
 import MinimalHoverButtons from '~/components/Chat/Messages/MinimalHoverButtons';
 import { getHeaderModelName } from '~/components/Chat/Messages/ui/HeaderLabel';
 import { getHeaderPrefixForScreenReader, getMessageAriaLabel } from '~/utils';
+import SearchContent, { rendersMarkdownLite } from './Content/SearchContent';
 import MessageRow from '~/components/Chat/Messages/ui/MessageRow';
 import Icon from '~/components/Chat/Messages/MessageIcon';
 import { useAuthContext, useLocalize } from '~/hooks';
-import SearchContent from './Content/SearchContent';
 import SearchButtons from './SearchButtons';
 import SubRow from './SubRow';
 import store from '~/store';
@@ -52,6 +52,7 @@ export function areSearchMessagePropsEqual(
     /** Timestamp falls back to `clientTimestamp` when `createdAt` is absent. */
     a.clientTimestamp === b.clientTimestamp &&
     a.isCreatedByUser === b.isCreatedByUser &&
+    a.error === b.error &&
     a.sender === b.sender &&
     a.model === b.model &&
     a.endpoint === b.endpoint &&
@@ -124,7 +125,10 @@ function SearchMessage({ message }: Pick<TMessageProps, 'message'>) {
           className="final-completion"
           footer={
             <SubRow classes={message.isCreatedByUser ? 'justify-end text-xs' : 'text-xs'}>
-              <MinimalHoverButtons message={message} />
+              <MinimalHoverButtons
+                message={message}
+                variant={rendersMarkdownLite(message) ? 'lite' : undefined}
+              />
               <SearchButtons message={message} />
             </SubRow>
           }

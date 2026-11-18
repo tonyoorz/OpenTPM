@@ -132,6 +132,31 @@ mcpSettings:
 # is a remote streamable-http server exposing BMW Confluence search/read/write
 # tools; its personal access token is injected from .env via ${CONFLUENCE_TOKEN}.
 mcpServers:
+  vizion-fleem:
+    title: Fleem
+    type: stdio
+    command: node
+    args:
+      - 'C:/Users/q446328/Desktop/LibreChat/api/server/mcp/fleem.js'
+    startup: false
+    chatMenu: true
+    timeout: 180000
+    env:
+      VIZION_LAB_ROOT: 'C:/Users/q446328/Desktop/vizion-lab'
+      FLEEM_VIEW_URL: 'https://integrate.bmwgroup.net/fleem/Platforms?iql=ids.fleet%20in%20(%22DTSV_China_C%22%2C%20%22DTSV_China_R%22)&platformStatus=Active'
+      FLEEM_BEARER_TOKEN: '{{FLEEM_BEARER_TOKEN}}'
+      HTTPS_PROXY: 'http://160.48.211.81:8080'
+      FLEEM_USE_SYSTEM_CA: 'true'
+    customUserVars:
+      FLEEM_BEARER_TOKEN:
+        title: Fleem Access Token
+        description: >-
+          <a href="https://integrate.bmwgroup.net/fleem/" target="_blank" rel="noopener noreferrer">Sign in to Fleem</a>.
+          After signing in, open browser developer tools: Application &gt; Local Storage &gt;
+          https://integrate.bmwgroup.net and copy the <code>token</code> value.
+          Paste only the access token (without <code>Bearer</code>), save, then initialize or reconnect.
+          Repeat when the session expires. Never paste the token into chat.
+        sensitive: true
   octane-mcp:
     title: Octane
     type: streamable-http
@@ -165,6 +190,7 @@ interface:
   defaultPinnedTools:
     - 'vizion-tpm'
     - 'vizion-testcase'
+    - 'vizion-fleem'
     - 'confluence-atc'
 
 # Speech-to-Text: local FunASR/SenseVoice provider for Chinese voice

@@ -1,5 +1,6 @@
-import { createSSRFSafeUndiciConnect, isOAuthUrlAllowed } from '~/auth';
+import type { Dispatcher } from 'undici';
 import { createHardenedOAuthFetch, resetHardenedOAuthFetchDispatchers } from './hardenedFetch';
+import { createSSRFSafeUndiciConnect, isOAuthUrlAllowed } from '~/auth';
 
 jest.mock('~/auth', () => ({
   createSSRFSafeUndiciConnect: jest.fn(() => ({ lookup: jest.fn() })),
@@ -78,5 +79,18 @@ describe('createHardenedOAuthFetch', () => {
     })('https://auth.example.com:9443/token');
 
     expect(mockCreateSSRFSafeUndiciConnect).toHaveBeenCalledTimes(1);
+  });
+
+  it('gracefully closes evicted dispatchers', async () => {
+    const oauthFetch = createHardenedOAuthFetch();
+    await oauthFetch('https://auth.example.com:9443/token');
+    const init = mockFetch.mock.calls[0][1] as RequestInit & { dispatcher: Dispatcher };
+    const closeSpy = jest.spyOn(init.dispatcher, 'close');
+
+    for (let index = 0; index < 64; index++) {
+      await oauthFetch(`https://auth.example.com:${10000 + index}/token`);
+    }
+
+    expect(closeSpy).toHaveBeenCalled();
   });
 });

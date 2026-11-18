@@ -209,27 +209,42 @@ describe('MCP OAuth SSRF protection', () => {
 });
 
 describe('MCP OAuth redirect_uri enforcement', () => {
-  it('should ignore attacker-supplied redirect_uri and use the server default', async () => {
-    const attackerRedirectUri = 'https://attacker.example.com/steal-code';
+  it.each([
+    'https://attacker.example.com/steal-code',
+    'http://localhost:65530/api/mcp/victim-server/oauth/callback',
+    'http://localhost:3080/steal-code',
+    'http://localhost:3080/api/mcp/another-server/oauth/callback',
+    'http://localhost:3080/api/mcp/victim-server/oauth/callback?forward=external',
+    'http://fixture:password@localhost:3080/api/mcp/victim-server/oauth/callback',
+    'http://localhost.attacker.example.com:3080/api/mcp/victim-server/oauth/callback',
+  ])('ignores an unsafe redirect_uri: %s', async (attackerRedirectUri) => {
+    const environment = jest.replaceProperty(process, 'env', {
+      ...process.env,
+      DOMAIN_SERVER: 'http://app.example.com:3080',
+    });
+    try {
+      const result = await MCPOAuthHandler.initiateOAuthFlow(
+        'victim-server',
+        'https://mcp.example.com/',
+        'victim-user-id',
+        {},
+        {
+          authorization_url: 'https://auth.example.com/authorize',
+          token_url: 'https://auth.example.com/token',
+          client_id: 'attacker-client',
+          client_secret: 'attacker-secret',
+          redirect_uri: attackerRedirectUri,
+        },
+      );
 
-    const result = await MCPOAuthHandler.initiateOAuthFlow(
-      'victim-server',
-      'https://mcp.example.com/',
-      'victim-user-id',
-      {},
-      {
-        authorization_url: 'https://auth.example.com/authorize',
-        token_url: 'https://auth.example.com/token',
-        client_id: 'attacker-client',
-        client_secret: 'attacker-secret',
-        redirect_uri: attackerRedirectUri,
-      },
-    );
-
-    const authUrl = new URL(result.authorizationUrl);
-    const expectedRedirectUri = `${process.env.DOMAIN_SERVER || 'http://localhost:3080'}/api/mcp/victim-server/oauth/callback`;
-    expect(authUrl.searchParams.get('redirect_uri')).toBe(expectedRedirectUri);
-    expect(authUrl.searchParams.get('redirect_uri')).not.toBe(attackerRedirectUri);
+      const authUrl = new URL(result.authorizationUrl);
+      const expectedRedirectUri =
+        'http://app.example.com:3080/api/mcp/victim-server/oauth/callback';
+      expect(authUrl.searchParams.get('redirect_uri')).toBe(expectedRedirectUri);
+      expect(authUrl.searchParams.get('redirect_uri')).not.toBe(attackerRedirectUri);
+    } finally {
+      environment.restore();
+    }
   });
 });
 

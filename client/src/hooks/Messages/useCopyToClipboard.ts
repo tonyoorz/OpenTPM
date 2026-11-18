@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import copy from 'copy-to-clipboard';
-import { ContentTypes, SearchResultData } from 'librechat-data-provider';
-import type { TMessage, TMessageContentParts } from 'librechat-data-provider';
+import { useRecoilValue } from 'recoil';
+import { ContentTypes } from 'librechat-data-provider';
+import type { TMessage, SearchResultData, TMessageContentParts } from 'librechat-data-provider';
+import type { MarkdownVariant, RichTextMode } from '~/utils/richtext';
 import {
   SPAN_REGEX,
   CLEANUP_REGEX,
@@ -9,6 +11,8 @@ import {
   STANDALONE_PATTERN,
   INVALID_CITATION_REGEX,
 } from '~/utils/citations';
+import { markdownToHtml } from '~/utils/richtext';
+import store from '~/store';
 
 type Source = {
   link: string;
@@ -19,9 +23,17 @@ type Source = {
   citationKey: string; // Used for deduplication
 };
 
+type Citation = {
+  referenceNumber: number;
+  link: string;
+  title?: string;
+  source: Source;
+};
+
 const refTypeMap: Record<string, string> = {
   search: 'organic',
   ref: 'references',
+  file: 'references',
   news: 'topStories',
   image: 'images',
   video: 'videos',
@@ -29,7 +41,20 @@ const refTypeMap: Record<string, string> = {
 
 type ClipboardSource = Partial<Pick<TMessage, 'text' | 'content'>> & {
   searchResults?: { [key: string]: SearchResultData };
+  richText?: RichTextMode;
 };
+
+type MessageClipboardSource = Omit<ClipboardSource, 'richText'> &
+  Partial<Pick<TMessage, 'isCreatedByUser' | 'error'>> & {
+    variant?: MarkdownVariant;
+  };
+
+type CitationSegment = {
+  text: string;
+  reserved: ReadonlySet<string>;
+};
+
+const EMPTY_RESERVED: ReadonlySet<string> = new Set();
 
 function getPartText(part: TMessageContentParts): string {
   if (part?.type !== ContentTypes.TEXT) {
@@ -39,12 +64,10 @@ function getPartText(part: TMessageContentParts): string {
   return typeof part.text === 'string' ? part.text : (part.text?.value ?? '');
 }
 
-export function serializeMessageForClipboard({
-  text,
-  content,
-}: Partial<Pick<TMessage, 'text' | 'content'>>): string {
+function getMessageParts({ text, content }: Partial<Pick<TMessage, 'text' | 'content'>>): string[] {
   if (!Array.isArray(content) || content.length === 0) {
-    return text ?? '';
+    const messageText = text ?? '';
+    return messageText.length > 0 ? [messageText] : [];
   }
 
   const parts: string[] = [];
@@ -55,37 +78,104 @@ export function serializeMessageForClipboard({
     }
   }
 
-  return parts.join('\n');
+  return parts;
 }
 
-function buildClipboardText({ text, content, searchResults }: ClipboardSource): string {
-  const messageText = serializeMessageForClipboard({ text, content });
+export function serializeMessageForClipboard(
+  source: Partial<Pick<TMessage, 'text' | 'content'>>,
+): string {
+  return getMessageParts(source).join('\n');
+}
+
+function buildClipboardContent({
+  text,
+  content,
+  searchResults,
+}: ClipboardSource): CitationSegment[] {
+  const parts = getMessageParts({ text, content });
 
   if (!searchResults || Object.keys(searchResults).length === 0) {
-    return messageText.replace(INVALID_CITATION_REGEX, '').replace(CLEANUP_REGEX, '');
+    return parts.map((part) => ({
+      text: part.replace(INVALID_CITATION_REGEX, '').replace(CLEANUP_REGEX, ''),
+      reserved: EMPTY_RESERVED,
+    }));
   }
 
-  const citationManager = processCitations(messageText, searchResults);
+  const processor = createCitationProcessor(searchResults);
+  const segments = parts.map((part, index) => processor.process(part, index === parts.length - 1));
 
-  if (citationManager.citations.size === 0) {
-    return citationManager.formattedText;
+  if (processor.citations.size === 0) {
+    return segments;
   }
 
-  const sortedCitations = Array.from(citationManager.citations.entries()).sort(
+  const sortedCitations = Array.from(processor.citations.entries()).sort(
     (a, b) => a[1].referenceNumber - b[1].referenceNumber,
   );
   const citationList = sortedCitations
     .map(([, citation]) => `[${citation.referenceNumber}] ${citation.link}\n`)
     .join('');
 
-  return `${citationManager.formattedText}\n\nCitations:\n${citationList}`;
+  segments.push({
+    text: `\nCitations:\n${citationList}`,
+    reserved: new Set(sortedCitations.map(([, citation]) => `${citation.referenceNumber}`)),
+  });
+
+  return segments;
+}
+
+function buildClipboardText(source: ClipboardSource): string {
+  return buildClipboardContent(source)
+    .map((segment) => segment.text)
+    .join('\n');
 }
 
 export function hasCopyableText(source: ClipboardSource): boolean {
   return buildClipboardText(source).trim().length > 0;
 }
 
-export default function useCopyToClipboard({ text, content, searchResults }: ClipboardSource) {
+function buildCopyOptions(
+  segments: CitationSegment[],
+  text: string,
+  richText: RichTextMode | undefined,
+): Parameters<typeof copy>[1] {
+  if (!richText) {
+    return { format: 'text/plain' };
+  }
+
+  let html = '';
+  for (const segment of segments) {
+    const serialized = markdownToHtml(segment.text, { ...richText, reserved: segment.reserved });
+    if (serialized.length > 0) {
+      html += html.length > 0 ? `\n${serialized}` : serialized;
+    }
+  }
+  if (html.length === 0) {
+    return { format: 'text/plain' };
+  }
+
+  return {
+    format: 'text/plain',
+    onCopy: (clipboardData: object) => {
+      const data = clipboardData as DataTransfer | null;
+      if (typeof data?.setData !== 'function') {
+        return;
+      }
+      try {
+        data.setData('text/plain', text);
+        data.setData('text/html', html);
+      } catch {
+        return;
+      }
+    },
+  };
+}
+
+export default function useCopyToClipboard({
+  text,
+  content,
+  searchResults,
+  richText,
+}: ClipboardSource) {
   const copyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
@@ -98,13 +188,14 @@ export default function useCopyToClipboard({ text, content, searchResults }: Cli
 
   const copyToClipboard = useCallback(
     (setIsCopied: React.Dispatch<React.SetStateAction<boolean>>): boolean => {
-      const clipboardText = buildClipboardText({ text, content, searchResults });
+      const clipboardContent = buildClipboardContent({ text, content, searchResults });
+      const clipboardText = clipboardContent.map((segment) => segment.text).join('\n');
 
       if (clipboardText.trim().length === 0) {
         return false;
       }
 
-      if (!copy(clipboardText, { format: 'text/plain' })) {
+      if (!copy(clipboardText, buildCopyOptions(clipboardContent, clipboardText, richText))) {
         return false;
       }
 
@@ -119,244 +210,286 @@ export default function useCopyToClipboard({ text, content, searchResults }: Cli
 
       return true;
     },
-    [text, content, searchResults],
+    [text, content, searchResults, richText],
   );
 
   return copyToClipboard;
 }
 
+export function useCopyMessageToClipboard({
+  isCreatedByUser,
+  error,
+  variant,
+  ...source
+}: MessageClipboardSource) {
+  const copyRichText = useRecoilValue(store.copyRichText);
+  const enableUserMsgMarkdown = useRecoilValue(store.enableUserMsgMarkdown);
+  const latexParsing = useRecoilValue(store.LaTeXParsing);
+  const user = useRecoilValue(store.user);
+  const errorAsText =
+    error === true &&
+    variant === undefined &&
+    !(Array.isArray(source.content) && source.content.length > 0);
+
+  const richText = useMemo((): RichTextMode | undefined => {
+    if (!copyRichText || errorAsText) {
+      return undefined;
+    }
+    if (variant === 'lite') {
+      return { variant: 'lite', latex: false, userId: user?.id };
+    }
+    if (variant === 'full' || isCreatedByUser !== true) {
+      return { variant: 'full', latex: latexParsing, userId: user?.id };
+    }
+    return enableUserMsgMarkdown ? { variant: 'lite', latex: false, userId: user?.id } : undefined;
+  }, [
+    copyRichText,
+    enableUserMsgMarkdown,
+    errorAsText,
+    isCreatedByUser,
+    latexParsing,
+    user?.id,
+    variant,
+  ]);
+
+  return useCopyToClipboard({ ...source, richText });
+}
+
 /**
  * Process citations in the text and format them properly
  */
-function processCitations(text: string, searchResults: { [key: string]: SearchResultData }) {
+function createCitationProcessor(searchResults: { [key: string]: SearchResultData }): {
+  process: (text: string, isLastPart: boolean) => CitationSegment;
+  citations: Map<string, Citation>;
+} {
   // Maps citation keys to their info including reference numbers
-  const citations = new Map<
-    string,
-    {
-      referenceNumber: number;
-      link: string;
-      title?: string;
-      source: Source;
-    }
-  >();
+  const citations = new Map<string, Citation>();
 
   // Map to track URLs to citation keys for deduplication
   const urlToCitationKey = new Map<string, string>();
 
   let nextReferenceNumber = 1;
-  let formattedText = text;
+  const process = (text: string, isLastPart: boolean): CitationSegment => {
+    const reserved = new Set<string>();
+    let formattedText = text;
 
-  // Step 1: Process highlighted text first (simplify by just making it bold in markdown)
-  formattedText = formattedText.replace(SPAN_REGEX, (match) => {
-    const text = match.replace(/\\ue203|\\ue204|\ue203|\ue204/g, '');
-    return `**${text}**`;
-  });
-
-  // Step 2: Find all standalone citations and composite citation blocks
-  const allCitations: Array<{
-    turn: string;
-    type: string;
-    index: string;
-    position: number;
-    fullMatch: string;
-    isComposite: boolean;
-  }> = [];
-
-  // Find standalone citations
-  let standaloneMatch: RegExpExecArray | null;
-  const standaloneCopy = new RegExp(STANDALONE_PATTERN.source, 'g');
-  while ((standaloneMatch = standaloneCopy.exec(formattedText)) !== null) {
-    allCitations.push({
-      turn: standaloneMatch[1],
-      type: standaloneMatch[2],
-      index: standaloneMatch[3],
-      position: standaloneMatch.index,
-      fullMatch: standaloneMatch[0],
-      isComposite: false,
+    // Step 1: Process highlighted text first (simplify by just making it bold in markdown)
+    formattedText = formattedText.replace(SPAN_REGEX, (match) => {
+      const text = match.replace(/\\ue203|\\ue204|\ue203|\ue204/g, '');
+      return `**${text}**`;
     });
-  }
 
-  // Find composite citation blocks
-  let compositeMatch: RegExpExecArray | null;
-  const compositeCopy = new RegExp(COMPOSITE_REGEX.source, 'g');
-  while ((compositeMatch = compositeCopy.exec(formattedText)) !== null) {
-    const block = compositeMatch[0];
-    const blockStart = compositeMatch.index;
+    // Step 2: Find all standalone citations and composite citation blocks
+    const allCitations: Array<{
+      turn: string;
+      type: string;
+      index: string;
+      position: number;
+      fullMatch: string;
+      isComposite: boolean;
+    }> = [];
 
-    // Extract individual citations within the composite block
-    let citationMatch: RegExpExecArray | null;
-    const citationPattern = new RegExp(STANDALONE_PATTERN.source, 'g');
-    while ((citationMatch = citationPattern.exec(block)) !== null) {
+    // Find standalone citations
+    let standaloneMatch: RegExpExecArray | null;
+    const standaloneCopy = new RegExp(STANDALONE_PATTERN.source, 'g');
+    while ((standaloneMatch = standaloneCopy.exec(formattedText)) !== null) {
       allCitations.push({
-        turn: citationMatch[1],
-        type: citationMatch[2],
-        index: citationMatch[3],
-        position: blockStart + citationMatch.index,
-        fullMatch: block, // Store the full composite block
-        isComposite: true,
+        turn: standaloneMatch[1],
+        type: standaloneMatch[2],
+        index: standaloneMatch[3],
+        position: standaloneMatch.index,
+        fullMatch: standaloneMatch[0],
+        isComposite: false,
       });
     }
-  }
 
-  // Sort citations by their position in the text
-  allCitations.sort((a, b) => a.position - b.position);
+    // Find composite citation blocks
+    let compositeMatch: RegExpExecArray | null;
+    const compositeCopy = new RegExp(COMPOSITE_REGEX.source, 'g');
+    while ((compositeMatch = compositeCopy.exec(formattedText)) !== null) {
+      const block = compositeMatch[0];
+      const blockStart = compositeMatch.index;
 
-  // Step 3: Process each citation and build the reference mapping
-  const processedCitations = new Set<string>();
-  const replacements: Array<[string, string]> = [];
-  const compositeCitationsMap = new Map<string, number[]>();
-
-  for (const citation of allCitations) {
-    const { turn, type, index, fullMatch, isComposite } = citation;
-    const searchData = searchResults[turn];
-
-    if (!searchData) continue;
-
-    const dataType = refTypeMap[type.toLowerCase()] || type.toLowerCase();
-    const idx = parseInt(index, 10);
-
-    // Skip if no matching data
-    if (!searchData[dataType] || !searchData[dataType][idx]) {
-      continue;
-    }
-
-    // Get source data
-    const sourceData = searchData[dataType][idx];
-    const sourceUrl = sourceData.link || '';
-
-    // Skip if no link
-    if (!sourceUrl) continue;
-
-    // Check if this URL has already been cited
-    let citationKey = urlToCitationKey.get(sourceUrl);
-
-    // If not, create a new citation key
-    if (!citationKey) {
-      citationKey = `${turn}-${dataType}-${idx}`;
-      urlToCitationKey.set(sourceUrl, citationKey);
-    }
-
-    const source: Source = {
-      link: sourceUrl,
-      title: sourceData.title || sourceData.name || '',
-      attribution: sourceData.attribution || sourceData.source || '',
-      type: dataType,
-      typeIndex: idx,
-      citationKey,
-    };
-
-    // Skip if already processed this citation in a composite block
-    if (isComposite && processedCitations.has(fullMatch)) {
-      continue;
-    }
-
-    let referenceText = '';
-
-    // Check if this source has been cited before
-    let existingCitation = citations.get(citationKey);
-
-    if (!existingCitation) {
-      // New citation
-      existingCitation = {
-        referenceNumber: nextReferenceNumber++,
-        link: source.link,
-        title: source.title,
-        source,
-      };
-      citations.set(citationKey, existingCitation);
-    }
-
-    if (existingCitation) {
-      // For composite blocks, we need to find all citations and create a combined reference
-      if (isComposite) {
-        // Parse all citations in this composite block if we haven't processed it yet
-        if (!processedCitations.has(fullMatch)) {
-          const compositeCitations: number[] = [];
-          let citationMatch: RegExpExecArray | null;
-          const citationPattern = new RegExp(STANDALONE_PATTERN.source, 'g');
-
-          while ((citationMatch = citationPattern.exec(fullMatch)) !== null) {
-            const cTurn = citationMatch[1];
-            const cType = citationMatch[2];
-            const cIndex = citationMatch[3];
-            const cDataType = refTypeMap[cType.toLowerCase()] || cType.toLowerCase();
-
-            const cSource = searchResults[cTurn]?.[cDataType]?.[parseInt(cIndex, 10)];
-            if (cSource && cSource.link) {
-              // Check if we've already created a citation for this URL
-              const cUrl = cSource.link;
-              let cKey = urlToCitationKey.get(cUrl);
-
-              if (!cKey) {
-                cKey = `${cTurn}-${cDataType}-${cIndex}`;
-                urlToCitationKey.set(cUrl, cKey);
-              }
-
-              let cCitation = citations.get(cKey);
-
-              if (!cCitation) {
-                cCitation = {
-                  referenceNumber: nextReferenceNumber++,
-                  link: cSource.link,
-                  title: cSource.title || cSource.name || '',
-                  source: {
-                    link: cSource.link,
-                    title: cSource.title || cSource.name || '',
-                    attribution: cSource.attribution || cSource.source || '',
-                    type: cDataType,
-                    typeIndex: parseInt(cIndex, 10),
-                    citationKey: cKey,
-                  },
-                };
-                citations.set(cKey, cCitation);
-              }
-
-              if (cCitation) {
-                compositeCitations.push(cCitation.referenceNumber);
-              }
-            }
-          }
-
-          // Sort and deduplicate the composite citations
-          const uniqueSortedCitations = [...new Set(compositeCitations)].sort((a, b) => a - b);
-
-          // Create combined reference numbers for all citations in this composite
-          referenceText =
-            uniqueSortedCitations.length > 0
-              ? uniqueSortedCitations.map((num) => `[${num}]`).join('')
-              : '';
-
-          processedCitations.add(fullMatch);
-          compositeCitationsMap.set(fullMatch, uniqueSortedCitations);
-          replacements.push([fullMatch, referenceText]);
-        }
-
-        // Skip further processing since we've handled the entire composite block
-        continue;
-      } else {
-        // Single citation
-        referenceText = `[${existingCitation.referenceNumber}]`;
-        replacements.push([fullMatch, referenceText]);
+      // Extract individual citations within the composite block
+      let citationMatch: RegExpExecArray | null;
+      const citationPattern = new RegExp(STANDALONE_PATTERN.source, 'g');
+      while ((citationMatch = citationPattern.exec(block)) !== null) {
+        allCitations.push({
+          turn: citationMatch[1],
+          type: citationMatch[2],
+          index: citationMatch[3],
+          position: blockStart + citationMatch.index,
+          fullMatch: block, // Store the full composite block
+          isComposite: true,
+        });
       }
     }
-  }
 
-  // Step 4: Apply all replacements (from longest to shortest to avoid nested replacement issues)
-  replacements.sort((a, b) => b[0].length - a[0].length);
-  for (const [pattern, replacement] of replacements) {
-    formattedText = formattedText.replace(pattern, replacement);
-  }
+    // Sort citations by their position in the text
+    allCitations.sort((a, b) => a.position - b.position);
 
-  // Step 5: Remove any orphaned composite blocks at the end of the text
-  // This prevents the [1][2][3][4] list that might appear at the end if there's a composite there
-  formattedText = formattedText.replace(/\n\s*\[\d+\](\[\d+\])*\s*$/g, '');
+    // Step 3: Process each citation and build the reference mapping
+    const processedCitations = new Set<string>();
+    const replacements: Array<[string, string]> = [];
+    const compositeCitationsMap = new Map<string, number[]>();
 
-  // Step 6: Clean up any remaining citation markers
-  formattedText = formattedText.replace(INVALID_CITATION_REGEX, '');
-  formattedText = formattedText.replace(CLEANUP_REGEX, '');
+    for (const citation of allCitations) {
+      const { turn, type, index, fullMatch, isComposite } = citation;
+      const searchData = searchResults[turn];
 
-  return {
-    formattedText,
-    citations,
+      if (!searchData) continue;
+
+      const dataType = refTypeMap[type.toLowerCase()] || type.toLowerCase();
+      const idx = parseInt(index, 10);
+
+      // Skip if no matching data
+      if (!searchData[dataType] || !searchData[dataType][idx]) {
+        continue;
+      }
+
+      // Get source data
+      const sourceData = searchData[dataType][idx];
+      const sourceUrl = sourceData.link || '';
+
+      // Skip if no link
+      if (!sourceUrl) continue;
+
+      // Check if this URL has already been cited
+      let citationKey = urlToCitationKey.get(sourceUrl);
+
+      // If not, create a new citation key
+      if (!citationKey) {
+        citationKey = `${turn}-${dataType}-${idx}`;
+        urlToCitationKey.set(sourceUrl, citationKey);
+      }
+
+      const source: Source = {
+        link: sourceUrl,
+        title: sourceData.title || sourceData.name || '',
+        attribution: sourceData.attribution || sourceData.source || '',
+        type: dataType,
+        typeIndex: idx,
+        citationKey,
+      };
+
+      // Skip if already processed this citation in a composite block
+      if (isComposite && processedCitations.has(fullMatch)) {
+        continue;
+      }
+
+      let referenceText = '';
+
+      // Check if this source has been cited before
+      let existingCitation = citations.get(citationKey);
+
+      if (!existingCitation) {
+        // New citation
+        existingCitation = {
+          referenceNumber: nextReferenceNumber++,
+          link: source.link,
+          title: source.title,
+          source,
+        };
+        citations.set(citationKey, existingCitation);
+      }
+
+      if (existingCitation) {
+        // For composite blocks, we need to find all citations and create a combined reference
+        if (isComposite) {
+          // Parse all citations in this composite block if we haven't processed it yet
+          if (!processedCitations.has(fullMatch)) {
+            const compositeCitations: number[] = [];
+            let citationMatch: RegExpExecArray | null;
+            const citationPattern = new RegExp(STANDALONE_PATTERN.source, 'g');
+
+            while ((citationMatch = citationPattern.exec(fullMatch)) !== null) {
+              const cTurn = citationMatch[1];
+              const cType = citationMatch[2];
+              const cIndex = citationMatch[3];
+              const cDataType = refTypeMap[cType.toLowerCase()] || cType.toLowerCase();
+
+              const cSource = searchResults[cTurn]?.[cDataType]?.[parseInt(cIndex, 10)];
+              if (cSource && cSource.link) {
+                // Check if we've already created a citation for this URL
+                const cUrl = cSource.link;
+                let cKey = urlToCitationKey.get(cUrl);
+
+                if (!cKey) {
+                  cKey = `${cTurn}-${cDataType}-${cIndex}`;
+                  urlToCitationKey.set(cUrl, cKey);
+                }
+
+                let cCitation = citations.get(cKey);
+
+                if (!cCitation) {
+                  cCitation = {
+                    referenceNumber: nextReferenceNumber++,
+                    link: cSource.link,
+                    title: cSource.title || cSource.name || '',
+                    source: {
+                      link: cSource.link,
+                      title: cSource.title || cSource.name || '',
+                      attribution: cSource.attribution || cSource.source || '',
+                      type: cDataType,
+                      typeIndex: parseInt(cIndex, 10),
+                      citationKey: cKey,
+                    },
+                  };
+                  citations.set(cKey, cCitation);
+                }
+
+                if (cCitation) {
+                  compositeCitations.push(cCitation.referenceNumber);
+                }
+              }
+            }
+
+            // Sort and deduplicate the composite citations
+            const uniqueSortedCitations = [...new Set(compositeCitations)].sort((a, b) => a - b);
+            for (const number of uniqueSortedCitations) {
+              reserved.add(`${number}`);
+            }
+
+            // Create combined reference numbers for all citations in this composite
+            referenceText =
+              uniqueSortedCitations.length > 0
+                ? uniqueSortedCitations.map((num) => `[${num}]`).join('')
+                : '';
+
+            processedCitations.add(fullMatch);
+            compositeCitationsMap.set(fullMatch, uniqueSortedCitations);
+            replacements.push([fullMatch, referenceText]);
+          }
+
+          // Skip further processing since we've handled the entire composite block
+          continue;
+        } else {
+          // Single citation
+          reserved.add(`${existingCitation.referenceNumber}`);
+          referenceText = `[${existingCitation.referenceNumber}]`;
+          replacements.push([fullMatch, referenceText]);
+        }
+      }
+    }
+
+    // Step 4: Apply all replacements (from longest to shortest to avoid nested replacement issues)
+    replacements.sort((a, b) => b[0].length - a[0].length);
+    for (const [pattern, replacement] of replacements) {
+      formattedText = formattedText.replace(pattern, replacement);
+    }
+
+    // Step 5: Remove any orphaned composite blocks at the end of the text
+    // This prevents the [1][2][3][4] list that might appear at the end if there's a composite there
+    if (isLastPart) {
+      formattedText = formattedText.replace(/\n\s*\[\d+\](\[\d+\])*\s*$/g, '');
+    }
+
+    // Step 6: Clean up any remaining citation markers
+    formattedText = formattedText.replace(INVALID_CITATION_REGEX, '');
+    formattedText = formattedText.replace(CLEANUP_REGEX, '');
+
+    return { text: formattedText, reserved };
   };
+
+  return { process, citations };
 }

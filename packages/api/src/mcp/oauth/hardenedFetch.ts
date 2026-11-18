@@ -1,7 +1,8 @@
-import { Agent } from 'undici';
-import type { Dispatcher } from 'undici';
+import { isIP } from 'node:net';
+import { Agent, ProxyAgent } from 'undici';
 import type { FetchLike } from '@modelcontextprotocol/sdk/shared/transport';
-import { createSSRFSafeUndiciConnect, isOAuthUrlAllowed } from '~/auth';
+import type { Dispatcher } from 'undici';
+import { createSSRFSafeUndiciConnect, isOAuthUrlAllowed, isSSRFTarget } from '~/auth';
 import { getOAuthUrlPort } from './url';
 
 type FetchInitWithDispatcher = RequestInit & {
@@ -9,7 +10,7 @@ type FetchInitWithDispatcher = RequestInit & {
 };
 
 const MAX_OAUTH_DISPATCHERS = 64;
-const oauthDispatchers = new Map<string, Agent>();
+const oauthDispatchers = new Map<string, Dispatcher>();
 
 function shouldBypassSSRFDispatcher(url: string | URL, allowedDomains?: string[] | null): boolean {
   if (!Array.isArray(allowedDomains) || allowedDomains.length === 0) {
@@ -34,23 +35,10 @@ function evictOldestDispatcher(): void {
 
   const dispatcher = oauthDispatchers.get(oldestKey);
   oauthDispatchers.delete(oldestKey);
-  dispatcher?.destroy();
+  void dispatcher?.close().catch(() => undefined);
 }
 
-function getOAuthDispatcher(
-  url: string | URL,
-  allowedDomains?: string[] | null,
-  allowedAddresses?: string[] | null,
-): Agent | undefined {
-  if (shouldBypassSSRFDispatcher(url, allowedDomains)) {
-    return undefined;
-  }
-
-  const parsedUrl = url instanceof URL ? url : new URL(url);
-  const port = getOAuthUrlPort(parsedUrl);
-  const effectiveAddresses =
-    Array.isArray(allowedDomains) && allowedDomains.length > 0 ? null : allowedAddresses;
-  const cacheKey = getDispatcherCacheKey(port, effectiveAddresses);
+function getCachedDispatcher(cacheKey: string, createDispatcher: () => Dispatcher): Dispatcher {
   const cached = oauthDispatchers.get(cacheKey);
   if (cached) {
     oauthDispatchers.delete(cacheKey);
@@ -62,25 +50,66 @@ function getOAuthDispatcher(
     evictOldestDispatcher();
   }
 
-  const dispatcher = new Agent({
-    connect: createSSRFSafeUndiciConnect(effectiveAddresses, port),
-  });
+  const dispatcher = createDispatcher();
   oauthDispatchers.set(cacheKey, dispatcher);
   return dispatcher;
+}
+
+function getOAuthDispatcher(
+  url: string | URL,
+  allowedDomains?: string[] | null,
+  allowedAddresses?: string[] | null,
+  proxy?: string,
+): Dispatcher | undefined {
+  const parsedUrl = url instanceof URL ? url : new URL(url);
+  const port = getOAuthUrlPort(parsedUrl);
+  const effectiveAddresses =
+    Array.isArray(allowedDomains) && allowedDomains.length > 0 ? null : allowedAddresses;
+
+  if (proxy) {
+    const hostname = parsedUrl.hostname.replace(/^\[|\]$/g, '');
+    const trusted = isOAuthUrlAllowed(parsedUrl.href, allowedDomains, effectiveAddresses);
+    if (!trusted && (!isIP(hostname) || isSSRFTarget(hostname, effectiveAddresses, port))) {
+      throw new Error(
+        'SSRF protection: proxied OAuth targets must be public IP literals or explicitly allowed endpoints',
+      );
+    }
+    return getCachedDispatcher(`proxy\0${proxy}`, () => new ProxyAgent({ uri: proxy }));
+  }
+
+  if (shouldBypassSSRFDispatcher(parsedUrl, allowedDomains)) {
+    return undefined;
+  }
+
+  return getCachedDispatcher(
+    `direct\0${getDispatcherCacheKey(port, effectiveAddresses)}`,
+    () => new Agent({ connect: createSSRFSafeUndiciConnect(effectiveAddresses, port) }),
+  );
 }
 
 export function createHardenedOAuthFetch({
   allowedDomains,
   allowedAddresses,
+  proxy,
 }: {
   allowedDomains?: string[] | null;
   allowedAddresses?: string[] | null;
+  proxy?: string;
 } = {}): FetchLike {
+  const proxyUrl = proxy?.trim();
   return async (url: string | URL, init?: RequestInit): Promise<Response> => {
-    const dispatcher = getOAuthDispatcher(url, allowedDomains, allowedAddresses);
+    const dispatcher = getOAuthDispatcher(url, allowedDomains, allowedAddresses, proxyUrl);
     const fetchInit: FetchInitWithDispatcher =
       dispatcher != null ? { ...init, dispatcher } : { ...init };
-    return fetch(url, fetchInit);
+    if (proxyUrl) {
+      fetchInit.redirect = 'manual';
+    }
+    const response = await fetch(url, fetchInit);
+    if (proxyUrl && response.status >= 300 && response.status < 400) {
+      await response.body?.cancel();
+      throw new Error('Proxied OAuth endpoint redirects are not allowed');
+    }
+    return response;
   };
 }
 

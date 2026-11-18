@@ -1,0 +1,8 @@
+{
+  "servers": {
+    "integrate-fleem": {
+      "type": "http",
+      "url": "https://integrate.bmwgroup.net/fleem/mcp"
+    }
+  }
+}

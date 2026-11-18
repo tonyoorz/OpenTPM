@@ -1,4 +1,6 @@
+import { createElement } from 'react';
 import copy from 'copy-to-clipboard';
+import { RecoilRoot, useSetRecoilState } from 'recoil';
 import { ContentTypes } from 'librechat-data-provider';
 import { renderHook, act } from '@testing-library/react';
 import type {
@@ -6,7 +8,12 @@ import type {
   ProcessedOrganic,
   TMessageContentParts,
 } from 'librechat-data-provider';
-import useCopyToClipboard, { hasCopyableText } from '~/hooks/Messages/useCopyToClipboard';
+import type { ComponentProps } from 'react';
+import useCopyToClipboard, {
+  hasCopyableText,
+  useCopyMessageToClipboard,
+} from '~/hooks/Messages/useCopyToClipboard';
+import store from '~/store';
 
 // Mock the copy-to-clipboard module
 jest.mock('copy-to-clipboard');
@@ -17,6 +24,7 @@ describe('useCopyToClipboard', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    localStorage.removeItem('copyRichText');
     mockCopy.mockReturnValue(true);
     jest.useFakeTimers();
   });
@@ -43,6 +51,123 @@ describe('useCopyToClipboard', () => {
       });
       expect(mockSetIsCopied).toHaveBeenCalledWith(true);
     });
+
+    it('adds HTML without changing the plain-text clipboard content when enabled', () => {
+      const source = {
+        text: '**Formatted**',
+        richText: { variant: 'full' as const, latex: false },
+      };
+      const { result } = renderHook(() => useCopyToClipboard(source));
+
+      act(() => {
+        result.current(mockSetIsCopied);
+      });
+
+      expect(mockCopy).toHaveBeenCalledWith('**Formatted**', {
+        format: 'text/plain',
+        onCopy: expect.any(Function),
+      });
+
+      const setData = jest.fn();
+      mockCopy.mock.calls[0][1]?.onCopy?.({ setData });
+
+      expect(setData).toHaveBeenCalledWith('text/plain', '**Formatted**');
+      expect(setData).toHaveBeenCalledWith(
+        'text/html',
+        expect.stringContaining('<strong>Formatted</strong>'),
+      );
+    });
+
+    it('renders separate text parts without leaking unfinished code fences between them', () => {
+      const source = {
+        content: [
+          { type: ContentTypes.TEXT, text: '```js\nconst first = true;' },
+          { type: ContentTypes.TEXT, text: '**Second part**' },
+        ] as TMessageContentParts[],
+        richText: { variant: 'full' as const, latex: false },
+      };
+      const { result } = renderHook(() => useCopyToClipboard(source));
+
+      act(() => {
+        result.current(mockSetIsCopied);
+      });
+
+      const setData = jest.fn();
+      mockCopy.mock.calls[0][1]?.onCopy?.({ setData });
+
+      expect(mockCopy.mock.calls[0][0]).toBe('```js\nconst first = true;\n**Second part**');
+      expect(setData).toHaveBeenCalledWith(
+        'text/html',
+        expect.stringContaining('<strong>Second part</strong>'),
+      );
+    });
+
+    it('does not resolve generated citations through unrelated Markdown definitions', () => {
+      const source = {
+        text: 'Source \\ue202turn0search0.\n\n[1]: https://unrelated.example/',
+        searchResults: {
+          '0': { organic: [{ link: 'https://source.example/', title: 'Source' }] },
+        },
+        richText: { variant: 'full' as const, latex: false },
+      };
+      const { result } = renderHook(() => useCopyToClipboard(source));
+
+      act(() => {
+        result.current(mockSetIsCopied);
+      });
+
+      const setData = jest.fn();
+      mockCopy.mock.calls[0][1]?.onCopy?.({ setData });
+      const html = setData.mock.calls.find(([format]) => format === 'text/html')?.[1];
+
+      expect(html).toContain('[1]');
+      expect(html).not.toContain('href="https://unrelated.example/"');
+      expect(html).toContain('href="https://source.example/"');
+    });
+
+    it('preserves a citation at a text-part boundary', () => {
+      const source = {
+        content: [
+          { type: ContentTypes.TEXT, text: 'Fact\n\\ue202turn0search0' },
+          { type: ContentTypes.TEXT, text: 'Another fact' },
+        ] as TMessageContentParts[],
+        searchResults: {
+          '0': { organic: [{ link: 'https://source.example/', title: 'Source' }] },
+        },
+        richText: { variant: 'full' as const, latex: false },
+      };
+      const { result } = renderHook(() => useCopyToClipboard(source));
+
+      act(() => {
+        result.current(mockSetIsCopied);
+      });
+
+      expect(mockCopy.mock.calls[0][0]).toContain('Fact\n[1]\nAnother fact');
+    });
+
+    it.each(['text/plain', 'text/html'])(
+      'does not throw when a browser rejects %s clipboard data',
+      (rejectedFormat) => {
+        const source = {
+          text: '**Formatted**',
+          richText: { variant: 'full' as const, latex: false },
+        };
+        const { result } = renderHook(() => useCopyToClipboard(source));
+
+        act(() => {
+          result.current(mockSetIsCopied);
+        });
+
+        const setData = jest.fn((format: string) => {
+          if (format === rejectedFormat) {
+            throw new Error('Clipboard format is unavailable');
+          }
+        });
+
+        expect(() => mockCopy.mock.calls[0][1]?.onCopy?.({ setData })).not.toThrow();
+        expect(setData).toHaveBeenCalledWith('text/plain', '**Formatted**');
+      },
+    );
 
     it('should handle content array with text types', () => {
       const content = [
@@ -194,6 +319,148 @@ describe('useCopyToClipboard', () => {
       });
 
       expect(mockSetIsCopied).toHaveBeenCalledWith(false);
+    });
+  });
+
+  describe('message preferences', () => {
+    const renderMessageCopy = (
+      source: Parameters<typeof useCopyMessageToClipboard>[0],
+      preferences: { enabled?: boolean; userMarkdown?: boolean; latex?: boolean } = {},
+    ) =>
+      renderHook(() => useCopyMessageToClipboard(source), {
+        wrapper: ({ children }) => {
+          const props: ComponentProps<typeof RecoilRoot> = {
+            children,
+            initializeState: ({ set }) => {
+              if (preferences.enabled !== undefined) {
+                set(store.copyRichText, preferences.enabled);
+              }
+              set(store.enableUserMsgMarkdown, preferences.userMarkdown ?? true);
+              set(store.LaTeXParsing, preferences.latex ?? true);
+            },
+          };
+          return createElement(RecoilRoot, props);
+        },
+      });
+
+    it('keeps message copying plain by default', () => {
+      const { result } = renderMessageCopy({ text: '**Formatted**' });
+
+      act(() => {
+        result.current(mockSetIsCopied);
+      });
+
+      expect(mockCopy).toHaveBeenCalledWith('**Formatted**', { format: 'text/plain' });
+    });
+
+    it('copies formatted assistant messages when the preference is enabled', () => {
+      const { result } = renderMessageCopy({ text: '**Formatted**' }, { enabled: true });
+
+      act(() => {
+        result.current(mockSetIsCopied);
+      });
+
+      const setData = jest.fn();
+      mockCopy.mock.calls[0][1]?.onCopy?.({ setData });
+
+      expect(setData).toHaveBeenCalledWith(
+        'text/html',
+        expect.stringContaining('<strong>Formatted</strong>'),
+      );
+    });
+
+    it('keeps user messages plain when their Markdown rendering is disabled', () => {
+      const { result } = renderMessageCopy(
+        { text: '**Literal**', isCreatedByUser: true },
+        { enabled: true, userMarkdown: false },
+      );
+
+      act(() => {
+        result.current(mockSetIsCopied);
+      });
+
+      expect(mockCopy).toHaveBeenCalledWith('**Literal**', { format: 'text/plain' });
+    });
+
+    it('does not render error messages as Markdown', () => {
+      const { result } = renderMessageCopy(
+        { text: '**Literal error**', error: true },
+        { enabled: true },
+      );
+
+      act(() => {
+        result.current(mockSetIsCopied);
+      });
+
+      expect(mockCopy).toHaveBeenCalledWith('**Literal error**', { format: 'text/plain' });
+    });
+
+    it('copies formatted text parts from a partially failed structured response', () => {
+      const { result } = renderMessageCopy(
+        {
+          content: [{ type: ContentTypes.TEXT, text: '**Partial response**' }],
+          error: true,
+        },
+        { enabled: true },
+      );
+
+      act(() => {
+        result.current(mockSetIsCopied);
+      });
+
+      const setData = jest.fn();
+      mockCopy.mock.calls[0][1]?.onCopy?.({ setData });
+
+      expect(setData).toHaveBeenCalledWith(
+        'text/html',
+        expect.stringContaining('<strong>Partial response</strong>'),
+      );
+    });
+
+    it('honors an explicit lite renderer on search and shared messages', () => {
+      const { result } = renderMessageCopy(
+        { text: '**Formatted**', isCreatedByUser: true, variant: 'lite', error: true },
+        { enabled: true, userMarkdown: false },
+      );
+
+      act(() => {
+        result.current(mockSetIsCopied);
+      });
+
+      const setData = jest.fn();
+      mockCopy.mock.calls[0][1]?.onCopy?.({ setData });
+
+      expect(setData).toHaveBeenCalledWith(
+        'text/html',
+        expect.stringContaining('<strong>Formatted</strong>'),
+      );
+    });
+
+    it('responds to preference changes without remounting', () => {
+      const { result } = renderHook(
+        () => ({
+          copy: useCopyMessageToClipboard({ text: '**Formatted**' }),
+          setEnabled: useSetRecoilState(store.copyRichText),
+        }),
+        { wrapper: RecoilRoot },
+      );
+
+      act(() => {
+        result.current.copy(mockSetIsCopied);
+      });
+      expect(mockCopy).toHaveBeenLastCalledWith('**Formatted**', { format: 'text/plain' });
+
+      act(() => {
+        result.current.setEnabled(true);
+      });
+      act(() => {
+        result.current.copy(mockSetIsCopied);
+      });
+
+      expect(mockCopy).toHaveBeenLastCalledWith('**Formatted**', {
+        format: 'text/plain',
+        onCopy: expect.any(Function),
+      });
     });
   });
 

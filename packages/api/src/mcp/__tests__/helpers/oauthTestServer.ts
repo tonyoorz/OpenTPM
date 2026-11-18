@@ -55,6 +55,60 @@ export function trackSockets(httpServer: http.Server): () => Promise<void> {
     });
 }
 
+export interface OAuthTestProxy {
+  url: string;
+  port: number;
+  requestCount: () => number;
+  close: () => Promise<void>;
+}
+
+export async function createOAuthProxy(targetUrl: string): Promise<OAuthTestProxy> {
+  const target = new URL(targetUrl);
+  const upstreams = new Set<Socket>();
+  let requestCount = 0;
+  const proxy = http.createServer((_request, response) => {
+    response.writeHead(502);
+    response.end();
+  });
+  const closeProxy = trackSockets(proxy);
+
+  proxy.on('connect', (request, socket, head) => {
+    if (request.url !== target.host) {
+      socket.destroy();
+      return;
+    }
+    requestCount += 1;
+    const upstream = net.connect(Number(target.port), target.hostname, () => {
+      socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+      if (head.length > 0) {
+        upstream.write(head);
+      }
+      socket.pipe(upstream);
+      upstream.pipe(socket);
+    });
+    upstreams.add(upstream);
+    upstream.once('close', () => upstreams.delete(upstream));
+    upstream.once('error', () => socket.destroy());
+    socket.once('error', () => upstream.destroy());
+    socket.once('close', () => upstream.destroy());
+  });
+
+  await new Promise<void>((resolve) => proxy.listen(0, 'localhost', resolve));
+  const port = (proxy.address() as net.AddressInfo).port;
+  return {
+    url: `http://localhost:${port}`,
+    port,
+    requestCount: () => requestCount,
+    close: async () => {
+      for (const upstream of upstreams) {
+        upstream.destroy();
+      }
+      upstreams.clear();
+      await closeProxy();
+    },
+  };
+}
+
 export interface OAuthTestServerOptions {
   tokenTTLMs?: number;
   issueRefreshTokens?: boolean;
@@ -304,6 +358,18 @@ export async function createOAuthMCPServer(
       res.writeHead(302, {
         Location: `${redirectUri}?code=${code}&state=${state}`,
       });
+      res.end();
+      return;
+    }
+
+    if (url.pathname === '/revoke' && req.method === 'POST') {
+      const body = new URLSearchParams(await readRequestBody(req));
+      const token = body.get('token');
+      if (token) {
+        issuedTokens.delete(token);
+        issuedRefreshTokens.delete(token);
+      }
+      res.writeHead(200);
       res.end();
       return;
     }

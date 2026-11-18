@@ -122,6 +122,13 @@ session-keeper, backend, or frontend process. Backend changes reload through
 nodemon, frontend changes reload through Vite, and session-keeper changes reload
 when it is started by the launcher.
 
+The Windows launcher loads the root `.env` for the session keeper and uses the
+Windows system proxy for Octane when needed. Override it with
+`SESSION_KEEPER_PROXY_URL` in the environment or `.env`; an empty value in `.env`
+keeps direct connections. Proxy endpoints must not contain credentials. Without
+this explicit setting, non-Windows services continue to ignore generic
+`HTTP_PROXY` and `HTTPS_PROXY` settings.
+
 The local services are available at:
 
 - Frontend and login: `http://localhost:3090/login`
@@ -137,7 +144,7 @@ MongoDB first, then run:
 
 ```powershell
 # Terminal 1, only when BMW_SSO_ENABLED=true
-.\services\session-keeper\.venv\Scripts\python.exe -m uvicorn session_keeper.app:app --host 127.0.0.1 --port 8090 --reload
+.\services\session-keeper\.venv\Scripts\python.exe -m uvicorn --env-file .env session_keeper.app:app --host 127.0.0.1 --port 8090 --reload
 
 # Terminal 2
 npm run backend:dev

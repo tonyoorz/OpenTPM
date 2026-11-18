@@ -72,6 +72,14 @@ class InspectableMCPConnectionFactory extends MCPConnectionFactory {
     return await this.handleOAuthRequired();
   }
 
+  public async refreshTokensForTest(refreshToken: string): Promise<MCPOAuthTokens> {
+    return this.createRefreshTokensFunction()(refreshToken, {
+      userId: 'user123',
+      serverName: 'test-server',
+      identifier: 'test-identifier',
+    });
+  }
+
   public getRequestScopedOAuthState(): {
     signal?: AbortSignal;
     oauthStart?: (authURL: string) => Promise<void>;
@@ -836,6 +844,81 @@ describe('MCPConnectionFactory', () => {
   });
 
   describe('OAuth event handling', () => {
+    it('replaces a pending OAuth flow created with another proxy', async () => {
+      const serverConfig: t.StreamableHTTPOptions = {
+        type: 'streamable-http',
+        url: 'https://api.example.com',
+        proxy: 'http://new-proxy.example.com:8080',
+      };
+      mockProcessMCPEnv.mockReturnValue(serverConfig);
+      const factory = new InspectableMCPConnectionFactory(
+        { serverName: 'test-server', serverConfig },
+        {
+          useOAuth: true,
+          user: mockUser,
+          flowManager: mockFlowManager,
+          returnOnOAuth: true,
+        },
+      );
+      mockFlowManager.getFlowState.mockResolvedValue({
+        status: 'PENDING',
+        type: 'mcp_oauth',
+        createdAt: Date.now(),
+        metadata: {
+          serverUrl: serverConfig.url,
+          proxy: 'http://old-proxy.example.com:8080',
+          authorizationUrl: 'https://auth.example.com/old',
+        },
+      });
+      mockMCPOAuthHandler.initiateOAuthFlow.mockResolvedValue({
+        authorizationUrl: 'https://auth.example.com/new',
+        flowId: 'user123:test-server',
+        flowMetadata: {
+          serverName: 'test-server',
+          userId: 'user123',
+          serverUrl: serverConfig.url,
+          state: 'fixture-state',
+          proxy: serverConfig.proxy,
+        },
+      });
+
+      await factory.handleOAuthRequiredForTest();
+
+      expect(mockMCPOAuthHandler.initiateOAuthFlow).toHaveBeenCalled();
+      expect(mockFlowManager.deleteFlow).toHaveBeenCalledWith('user123:test-server', 'mcp_oauth');
+    });
+
+    it('passes the server proxy to token refresh', async () => {
+      const proxy = 'http://proxy.example.com:8080';
+      const serverConfig: t.StreamableHTTPOptions = {
+        type: 'streamable-http',
+        url: 'https://api.example.com',
+        proxy,
+      };
+      mockProcessMCPEnv.mockReturnValue(serverConfig);
+      const factory = new InspectableMCPConnectionFactory(
+        {
+          serverName: 'test-server',
+          serverConfig,
+        },
+        { useOAuth: true, user: mockUser, flowManager: mockFlowManager },
+      );
+      const tokens: MCPOAuthTokens = { access_token: 'fixture-access', token_type: 'Bearer' };
+      mockMCPOAuthHandler.refreshOAuthTokens.mockResolvedValue(tokens);
+
+      await expect(factory.refreshTokensForTest('fixture-refresh')).resolves.toEqual(tokens);
+      expect(mockMCPOAuthHandler.refreshOAuthTokens).toHaveBeenCalledWith(
+        'fixture-refresh',
+        expect.objectContaining({ serverUrl: 'https://api.example.com' }),
+        {},
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        proxy,
+      );
+    });
+
     it('should handle oauthRequired event for returnOnOAuth scenario', async () => {
       const basicOptions = {
         serverName: 'test-server',
@@ -843,8 +926,10 @@ describe('MCPConnectionFactory', () => {
           ...mockServerConfig,
           url: 'https://api.example.com',
           type: 'sse' as const,
+          proxy: 'http://proxy.example.com:8080',
         } as t.SSEOptions,
       };
+      mockProcessMCPEnv.mockReturnValue(basicOptions.serverConfig);
 
       const oauthOptions = {
         useOAuth: true as const,
@@ -908,6 +993,7 @@ describe('MCPConnectionFactory', () => {
         oauthOptions.tokenMethods.findToken,
         undefined,
         'test-tenant',
+        'http://proxy.example.com:8080',
       );
 
       // initFlow must be awaited BEFORE the redirect to guarantee state is stored
@@ -1917,64 +2003,78 @@ describe('MCPConnectionFactory', () => {
       expect(mockConnectionInstance.setOAuthTokens).toHaveBeenCalledWith(refreshedTokens);
     });
 
-    it('does not coalesce silent refreshes across different server bindings', async () => {
-      const makeConfig = (url: string): t.SSEOptions => ({
-        type: 'sse',
-        url,
-        initTimeout: 15000,
-      });
-      const tokenMethods = {
-        findToken: jest.fn(),
-        createToken: jest.fn(),
-        updateToken: jest.fn(),
-        deleteTokens: jest.fn(),
-      };
-      mockProcessMCPEnv.mockImplementation(({ options }) => options as t.MCPOptions);
+    it.each([
+      { binding: 'server', url: 'https://server-b.example.com/mcp', proxy: undefined },
+      {
+        binding: 'proxy',
+        url: 'https://server-a.example.com/mcp',
+        proxy: 'http://proxy.example.com:8080',
+      },
+    ])(
+      'does not coalesce silent refreshes across different $binding bindings',
+      async ({ url, proxy }) => {
+        const makeConfig = (url: string, proxy?: string): t.SSEOptions => ({
+          type: 'sse',
+          url,
+          proxy,
+          initTimeout: 15000,
+        });
+        const tokenMethods = {
+          findToken: jest.fn(),
+          createToken: jest.fn(),
+          updateToken: jest.fn(),
+          deleteTokens: jest.fn(),
+        };
+        mockProcessMCPEnv.mockImplementation(({ options }) => options as t.MCPOptions);
 
-      const factoryA = new InspectableMCPConnectionFactory(
-        { serverName: 'test-server', serverConfig: makeConfig('https://server-a.example.com/mcp') },
-        { useOAuth: true, user: mockUser, flowManager: mockFlowManager, tokenMethods },
-      );
-      const factoryB = new InspectableMCPConnectionFactory(
-        { serverName: 'test-server', serverConfig: makeConfig('https://server-b.example.com/mcp') },
-        { useOAuth: true, user: mockUser, flowManager: mockFlowManager, tokenMethods },
-      );
+        const factoryA = new InspectableMCPConnectionFactory(
+          {
+            serverName: 'test-server',
+            serverConfig: makeConfig('https://server-a.example.com/mcp'),
+          },
+          { useOAuth: true, user: mockUser, flowManager: mockFlowManager, tokenMethods },
+        );
+        const factoryB = new InspectableMCPConnectionFactory(
+          { serverName: 'test-server', serverConfig: makeConfig(url, proxy) },
+          { useOAuth: true, user: mockUser, flowManager: mockFlowManager, tokenMethods },
+        );
 
-      const resolutions: Array<(tokens: MCPOAuthTokens) => void> = [];
-      mockMCPTokenStorage.forceRefreshTokens.mockImplementation(
-        () =>
-          new Promise<MCPOAuthTokens>((resolve) => {
-            resolutions.push(resolve);
-          }),
-      );
+        const resolutions: Array<(tokens: MCPOAuthTokens) => void> = [];
+        mockMCPTokenStorage.forceRefreshTokens.mockImplementation(
+          () =>
+            new Promise<MCPOAuthTokens>((resolve) => {
+              resolutions.push(resolve);
+            }),
+        );
 
-      const attemptA = factoryA.attemptSilentTokenRefreshForTest();
-      await Promise.resolve();
-      const attemptB = factoryB.attemptSilentTokenRefreshForTest();
-      await Promise.resolve();
+        const attemptA = factoryA.attemptSilentTokenRefreshForTest();
+        await Promise.resolve();
+        const attemptB = factoryB.attemptSilentTokenRefreshForTest();
+        await Promise.resolve();
 
-      expect(mockMCPTokenStorage.forceRefreshTokens).toHaveBeenCalledTimes(2);
-      const scopeA = mockMCPTokenStorage.forceRefreshTokens.mock.calls[0][0].singleFlightScope;
-      const scopeB = mockMCPTokenStorage.forceRefreshTokens.mock.calls[1][0].singleFlightScope;
-      expect(scopeA).toEqual(expect.any(String));
-      expect(scopeB).toEqual(expect.any(String));
-      expect(scopeA).not.toBe(scopeB);
-      const tokensA: MCPOAuthTokens = {
-        access_token: 'server-a-token',
-        token_type: 'Bearer',
-        obtained_at: Date.now(),
-      };
-      const tokensB: MCPOAuthTokens = {
-        access_token: 'server-b-token',
-        token_type: 'Bearer',
-        obtained_at: Date.now(),
-      };
-      resolutions[0](tokensA);
-      resolutions[1](tokensB);
+        expect(mockMCPTokenStorage.forceRefreshTokens).toHaveBeenCalledTimes(2);
+        const scopeA = mockMCPTokenStorage.forceRefreshTokens.mock.calls[0][0].singleFlightScope;
+        const scopeB = mockMCPTokenStorage.forceRefreshTokens.mock.calls[1][0].singleFlightScope;
+        expect(scopeA).toEqual(expect.any(String));
+        expect(scopeB).toEqual(expect.any(String));
+        expect(scopeA).not.toBe(scopeB);
+        const tokensA: MCPOAuthTokens = {
+          access_token: 'server-a-token',
+          token_type: 'Bearer',
+          obtained_at: Date.now(),
+        };
+        const tokensB: MCPOAuthTokens = {
+          access_token: 'server-b-token',
+          token_type: 'Bearer',
+          obtained_at: Date.now(),
+        };
+        resolutions[0](tokensA);
+        resolutions[1](tokensB);
 
-      await expect(attemptA).resolves.toEqual(tokensA);
-      await expect(attemptB).resolves.toEqual(tokensB);
-    });
+        await expect(attemptA).resolves.toEqual(tokensA);
+        await expect(attemptB).resolves.toEqual(tokensB);
+      },
+    );
 
     it('should keep the in-flight silent-refresh lock until the aborted refresh settles', async () => {
       // A timed-out caller should fall back to interactive OAuth immediately,

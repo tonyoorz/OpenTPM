@@ -3,12 +3,14 @@ export type InsightsRange = '24h' | '7d' | '30d' | 'custom';
 export const INSIGHTS_MAX_RANGE_DAYS = 30;
 export const INSIGHTS_SEARCH_MIN_LENGTH = 3;
 export const INSIGHTS_SEARCH_MAX_LENGTH = 200;
+export const INSIGHTS_UNASSIGNED_AGENT_ID = '__unassigned__';
 export type TInsightsParams = {
   range?: InsightsRange;
   fromTimestamp?: string;
   toTimestamp?: string;
   timeZone?: string;
   search?: string;
+  agentIds?: string[];
   page?: number;
   pageSize?: number;
 };
@@ -52,7 +54,13 @@ export type TInsightsSummary = {
   totalTokens: number;
 };
 
+export type TInsightsAgent = {
+  id: string;
+  name: string;
+};
+
 export type TInsightsResponse = {
+  agents?: TInsightsAgent[];
   summary: TInsightsSummary;
   daily: TInsightsDailyPoint[];
   topUsers: TInsightsUser[];

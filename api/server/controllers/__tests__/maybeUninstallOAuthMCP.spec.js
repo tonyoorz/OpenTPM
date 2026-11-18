@@ -273,6 +273,10 @@ describe('maybeUninstallOAuthMCP', () => {
 
   test('revokes both tokens and runs cleanup on happy path', async () => {
     setupOAuthServerFound();
+    mockGetServerConfig.mockResolvedValue({
+      ...serverConfig,
+      proxy: 'http://proxy.example.com:8080',
+    });
     mockGetTokens.mockResolvedValue({
       access_token: 'access-abc',
       refresh_token: 'refresh-xyz',
@@ -289,6 +293,8 @@ describe('maybeUninstallOAuthMCP', () => {
     expect(mockRevokeOAuthToken.mock.calls[0][2]).toBe('access');
     expect(mockRevokeOAuthToken.mock.calls[1][1]).toBe('refresh-xyz');
     expect(mockRevokeOAuthToken.mock.calls[1][2]).toBe('refresh');
+    expect(mockRevokeOAuthToken.mock.calls[0][7]).toBe('http://proxy.example.com:8080');
+    expect(mockRevokeOAuthToken.mock.calls[1][7]).toBe('http://proxy.example.com:8080');
 
     expect(mockDeleteUserTokens).toHaveBeenCalledTimes(1);
     expect(mockDeleteUserTokens.mock.calls[0][0]).toMatchObject({ userId, serverName });
@@ -350,6 +356,7 @@ describe('maybeUninstallOAuthMCP', () => {
         revocationEndpointAuthMethodsSupported: ['client_secret_basic'],
       }),
       { 'X-Tenant': 'acme' },
+      undefined,
       undefined,
       undefined,
     );

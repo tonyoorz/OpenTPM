@@ -39,8 +39,15 @@ if errorlevel 1 (
             echo Run the setup command in README.md, then run npm run dev again.
             exit /b 1
         )
+        if not defined SESSION_KEEPER_PROXY_URL (
+            node.exe -e "const envPath = process.argv[1]; const config = require('node:module').createRequire(envPath)('dotenv').parse(require('node:fs').readFileSync(envPath)); process.exit(Object.keys(config).some(key => key.toUpperCase() === 'SESSION_KEEPER_PROXY_URL') ? 0 : 1);" "%ROOT_DIR%.env"
+            if errorlevel 1 (
+                for /f "usebackq delims=" %%P in (`powershell.exe -NoProfile -Command "$target = [Uri]'https://octane-prod.bmwgroup.net/'; $proxy = [System.Net.WebRequest]::DefaultWebProxy.GetProxy($target); if ($proxy -and $proxy.Authority -ne $target.Authority) { $proxy.AbsoluteUri }"`) do set "SESSION_KEEPER_PROXY_URL=%%P"
+            )
+        )
+        if defined SESSION_KEEPER_PROXY_URL echo [2/4] Using a proxy for BMW SSO.
         echo [2/4] Starting BMW session keeper...
-        start "OpenTPM Session Keeper" /D "%ROOT_DIR%services\session-keeper" "!SESSION_KEEPER_PYTHON!" -m uvicorn session_keeper.app:app --host 127.0.0.1 --port 8090 --reload
+        start "OpenTPM Session Keeper" /D "%ROOT_DIR%services\session-keeper" "!SESSION_KEEPER_PYTHON!" -m uvicorn --env-file "%ROOT_DIR%.env" session_keeper.app:app --host 127.0.0.1 --port 8090 --reload
     )
 )
 

@@ -27,6 +27,15 @@ log = logging.getLogger("session_keeper.store")
 _DEFAULT_STORE_DIR = "/data/sessions"
 
 
+def create_session() -> requests.Session:
+    session = requests.Session()
+    session.trust_env = False
+    proxy_url = os.getenv("SESSION_KEEPER_PROXY_URL")
+    if proxy_url:
+        session.proxies.update({"http": proxy_url, "https": proxy_url})
+    return session
+
+
 def _hash_password(password: str) -> str:
     """Return a hex SHA-256 digest for credential validation."""
     return hashlib.sha256(password.encode()).hexdigest()
@@ -187,8 +196,7 @@ class SessionStore:
     @staticmethod
     def _dict_to_session(cookies: list) -> requests.Session:
         """Reconstruct a Session from a list of cookie dicts."""
-        session = requests.Session()
-        session.trust_env = False
+        session = create_session()
         for c in cookies:
             session.cookies.set(
                 c["name"],

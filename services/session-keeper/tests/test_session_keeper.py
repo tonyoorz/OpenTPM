@@ -375,7 +375,7 @@ class TestClient:
 
 
 class TestProxyBypass:
-    """Regression: _do_login must not use HTTP proxies for BMW internal tools.
+    """Regression: ignore ambient proxies unless a keeper proxy is configured.
 
     Docker Desktop injects HTTP_PROXY / HTTPS_PROXY into every container.
     The session keeper connects to internal BMW hosts which are unreachable
@@ -423,3 +423,25 @@ class TestProxyBypass:
         # Simpler: just verify trust_env is off and no explicit proxy set
         assert session.trust_env is False
         assert not session.proxies
+
+    def test_do_login_uses_explicit_keeper_proxy(self, monkeypatch):
+        from session_keeper.app import _do_login
+
+        proxy_url = "http://company-proxy.example:8080"
+        monkeypatch.setenv("SESSION_KEEPER_PROXY_URL", proxy_url)
+
+        with patch("bmw_sso.bmw_sso_session", return_value=requests.Session()) as login:
+            _do_login("https://example.bmwgroup.net", "q123", "pin", True, "mobile")
+
+        session = login.call_args.kwargs["session"]
+        assert session.trust_env is False
+        assert session.proxies == {"http": proxy_url, "https": proxy_url}
+
+    def test_restored_session_uses_explicit_keeper_proxy(self, monkeypatch):
+        proxy_url = "http://company-proxy.example:8080"
+        monkeypatch.setenv("SESSION_KEEPER_PROXY_URL", proxy_url)
+
+        session = SessionStore._dict_to_session([])
+
+        assert session.trust_env is False
+        assert session.proxies == {"http": proxy_url, "https": proxy_url}

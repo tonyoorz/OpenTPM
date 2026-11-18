@@ -5,8 +5,8 @@ import {
   type TInsightsParams,
 } from 'librechat-data-provider';
 import type { InsightsMethods } from '@librechat/data-schemas';
-import type { FilterQuery } from 'mongoose';
 import type { IMessage } from '@librechat/data-schemas';
+import type { FilterQuery } from 'mongoose';
 import type { Response } from 'express';
 import type { ServerRequest } from '~/types';
 
@@ -19,10 +19,7 @@ type InsightsAccessHandlerDeps = Pick<InsightsHandlerDeps, 'isInsightsEnabled'>;
 
 type ConversationMessagesHandlerDeps = {
   isInsightsEnabled: () => boolean;
-  getMessages: (
-    filter: FilterQuery<IMessage>,
-    select?: string,
-  ) => Promise<IMessage[]>;
+  getMessages: (filter: FilterQuery<IMessage>, select?: string) => Promise<IMessage[]>;
 };
 
 const firstQueryValue = (value: unknown): string | undefined => {
@@ -62,6 +59,30 @@ const timeZoneValue = (value: unknown): string | undefined => {
   }
 };
 
+const agentIdsValue = (
+  value: ServerRequest['query']['agentIds'],
+): TInsightsParams['agentIds'] | null => {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== 'string' || value.length > 16_384) {
+    return null;
+  }
+  if (value.trim().length === 0) {
+    return [];
+  }
+
+  const ids = new Set<string>();
+  for (const rawId of value.split(',')) {
+    const id = rawId.trim();
+    if (id.length === 0 || id.length > 128) {
+      return null;
+    }
+    ids.add(id);
+  }
+  return [...ids];
+};
+
 export function createInsightsAccessHandler({ isInsightsEnabled }: InsightsAccessHandlerDeps) {
   return async (_req: ServerRequest, res: Response): Promise<void> => {
     try {
@@ -86,6 +107,12 @@ export function createInsightsHandler({ isInsightsEnabled, getInsights }: Insigh
         return;
       }
 
+      const agentIds = agentIdsValue(req.query.agentIds);
+      if (agentIds === null) {
+        res.status(400).json({ message: 'Invalid agent selection' });
+        return;
+      }
+
       const page = positiveInteger(req.query.page, 1);
       const pageSize = Math.min(50, Math.max(5, positiveInteger(req.query.pageSize, 10)));
       const tenantId = stringValue(req.user?.tenantId);
@@ -95,6 +122,7 @@ export function createInsightsHandler({ isInsightsEnabled, getInsights }: Insigh
           ? requestedSearch
           : undefined;
       const insights = await getInsights({
+        ...(agentIds === undefined ? {} : { agentIds }),
         page,
         pageSize,
         tenantId,

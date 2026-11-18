@@ -575,6 +575,7 @@ export class MCPConnectionFactory {
           oauth?.token_url,
           oauth?.token_exchange_method,
           oauth?.token_endpoint_auth_methods_supported,
+          this.serverProxy,
         ]),
       )
       .digest('base64url');
@@ -651,6 +652,10 @@ export class MCPConnectionFactory {
     }
   }
 
+  private get serverProxy(): string | undefined {
+    return 'proxy' in this.serverConfig ? this.serverConfig.proxy?.trim() || undefined : undefined;
+  }
+
   /** Creates a function to refresh OAuth tokens when they expire */
   protected createRefreshTokensFunction(): (
     refreshToken: string,
@@ -685,6 +690,7 @@ export class MCPConnectionFactory {
         this.allowedDomains,
         this.allowedAddresses,
         signal,
+        this.serverProxy,
       );
     };
   }
@@ -885,6 +891,9 @@ export class MCPConnectionFactory {
 
   /** Prevents server-name keyed OAuth flow cache entries from crossing config bindings. */
   private isCurrentServerOAuthFlow(meta: MCPOAuthFlowMetadata | undefined): boolean {
+    if ((meta?.proxy?.trim() || undefined) !== this.serverProxy) {
+      return false;
+    }
     const currentServerUrl = (this.serverConfig as t.SSEOptions | t.StreamableHTTPOptions).url;
     try {
       MCPOAuthHandler.assertStoredClientBinding(
@@ -1093,6 +1102,7 @@ export class MCPConnectionFactory {
               this.tokenMethods?.deleteTokens ? this.tokenMethods.findToken : undefined,
               this.allowedAddresses,
               this.tenantId,
+              this.serverProxy,
             ),
           );
 
@@ -1502,6 +1512,7 @@ export class MCPConnectionFactory {
           this.tokenMethods?.deleteTokens ? this.tokenMethods.findToken : undefined,
           this.allowedAddresses,
           this.tenantId,
+          this.serverProxy,
         ),
       );
 
